@@ -1,0 +1,37 @@
+# Large disk images
+*.qcow2
+*.iso
+*.img
+*.raw
+
+# Pixi environment
+.pixi/envs/
+.pixi/.condapackageignore
+
+# Pixi lock file (optional - uncomment if you don't want to track it)
+# pixi.lock
+
+# User data with potential secrets
+user-data.yml
+NOTES.md
+
+# directories
+.trash/
+.qwen/
+
+# Logs
+*.log
+
+# Editor/IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Python
+*__pycache__*

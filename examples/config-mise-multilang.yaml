@@ -1,0 +1,23 @@
+# Multi-language Development with Mise
+packages:
+  - vim-enhanced
+  - git
+  - curl
+  - wget
+  - tmux
+  - htop
+  - gcc
+  - make
+
+mise_packages:
+  - node@20
+  - python@3.12
+  - go@1.21
+  - rust@latest
+  - java@17
+  - kubectl@latest
+  - terraform@latest
+  - gh@latest
+
+environment:
+  EDITOR: vim

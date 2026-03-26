@@ -1,0 +1,26 @@
+# Python Development with Mise
+packages:
+  - vim-enhanced
+  - git
+  - curl
+  - wget
+  - tmux
+  - htop
+  - gcc
+  - make
+
+mise_packages:
+  - python@3.12
+  - uv@latest
+  - poetry@latest
+  - pipx@latest
+
+pip_packages:
+  - jupyterlab
+  - numpy
+  - pandas
+  - matplotlib
+
+environment:
+  EDITOR: vim
+  PYTHONUNBUFFERED: "1"

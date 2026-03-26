@@ -1,0 +1,13 @@
+# Minimal Development Configuration
+packages:
+  - vim-enhanced
+  - python3
+  - git
+  - curl
+  - wget
+  - tmux
+  - htop
+
+environment:
+  EDITOR: vim
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"

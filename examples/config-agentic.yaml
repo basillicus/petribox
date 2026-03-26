@@ -1,0 +1,39 @@
+# Agentic AI Development Configuration
+packages:
+  - vim-enhanced
+  - python3
+  - git
+  - curl
+  - wget
+  - tmux
+  - htop
+  - docker
+  - docker-compose
+  - jq
+
+mise_packages:
+  - node@20
+  - python@latest
+
+pip_packages:
+  - jupyterlab
+  - langchain
+  - langchain-community
+  - langchain-openai
+  - langchain-anthropic
+  - langgraph
+  - pydantic
+  - pydantic-settings
+  - httpx
+  - aiohttp
+  - python-dotenv
+  - rich
+  - typer
+
+environment:
+  LANGCHAIN_TRACING_V2: "true"
+  LANGCHAIN_PROJECT: "sandbox-experiment"
+
+runcmd:
+  - sudo systemctl enable --now docker
+  - sudo usermod -aG docker $USER

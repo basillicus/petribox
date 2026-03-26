@@ -1,0 +1,33 @@
+# Mise Auto-Installation Example
+# 
+# This config demonstrates mise auto-installation at VM creation.
+# System dependencies (libatomic, openssl-devel, etc.) are automatically
+# installed before mise packages are configured.
+
+packages:
+  - vim-enhanced
+  - git
+  - curl
+  - wget
+  - tmux
+  - htop
+
+# Mise will be installed automatically with all dependencies
+mise_packages:
+  - node@20
+  - python@3.12
+  - go@1.21
+
+# Additional pip packages (optional)
+pip_packages:
+  - jupyterlab
+
+environment:
+  EDITOR: vim
+
+# After VM creation, connect and verify:
+# ssh user@vm-ip
+# mise --version
+# node --version
+# python --version
+# go version

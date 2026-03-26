@@ -1,0 +1,23 @@
+# Node.js Development with Mise
+packages:
+  - vim-enhanced
+  - git
+  - curl
+  - wget
+  - tmux
+  - htop
+
+mise_packages:
+  - node@20
+  - npm@latest
+  - pnpm@latest
+  - bun@latest
+  - deno@latest
+  - yarn@latest
+
+environment:
+  EDITOR: vim
+  NODE_ENV: development
+
+runcmd:
+  - echo "Mise installed and configured!"
