@@ -146,6 +146,7 @@ def cmd_create(args):
         mounts=args.mounts,
         vm_password=args.password,
         shell=args.shell,
+        agent=getattr(args, 'agent', None),
     )
     console.print(f"[green]✓ Seed ISO created[/green]")
 
@@ -1274,3 +1275,78 @@ def cmd_initial_setup(args):
         console.print("  Then run 'sandbox initial-setup' again")
 
     console.print()
+
+
+def cmd_install(args):
+    """Install software into an existing sandbox"""
+    db = SandboxDB()
+    sandbox = db.get_sandbox(args.name)
+
+    if not sandbox:
+        console.print(f"[red]Error: Sandbox '{args.name}' not found[/red]")
+        sys.exit(1)
+
+    if get_vm_status(args.name) != "running":
+        console.print(f"[red]Error: Sandbox '{args.name}' is not running[/red]")
+        console.print("Start it with: sandbox up " + args.name)
+        sys.exit(1)
+
+    vm_user = sandbox.user
+    user_home = f"/home/{vm_user}"
+
+    ip = get_vm_ip(args.name)
+    if not ip:
+        console.print(f"[red]Error: Could not get IP for '{args.name}'[/red]")
+        sys.exit(1)
+
+    if args.agent:
+        from .agents import get_agent_config
+        agent_config = get_agent_config(args.agent)
+        console.print(f"[green]Installing agent: {agent_config['name']}[/green]")
+
+        if agent_config.get("mise_packages"):
+            for pkg in agent_config["mise_packages"]:
+                console.print(f"[dim]Installing {pkg} via mise...[/dim]")
+                cmd = f"export HOME={user_home} && {user_home}/.local/bin/mise use -g {pkg}"
+                result = subprocess.run(
+                    ["ssh", "-o", "StrictHostKeyChecking=no", f"{vm_user}@{ip}", cmd],
+                    capture_output=True,
+                    text=True,
+                )
+                if result.returncode != 0:
+                    console.print(f"[yellow]Warning: Failed to install {pkg}: {result.stderr}[/yellow]")
+
+        if agent_config.get("install_script"):
+            console.print(f"[dim]Running agent installer...[/dim]")
+            install_script = agent_config["install_script"]
+            cmd = f"export HOME={user_home} && {install_script}"
+            result = subprocess.run(
+                ["ssh", "-o", "StrictHostKeyChecking=no", f"{vm_user}@{ip}", cmd],
+                capture_output=True,
+                text=True,
+            )
+            if result.returncode != 0:
+                console.print(f"[red]Error installing agent: {result.stderr}[/red]")
+                sys.exit(1)
+            console.print(f"[green]✓ Agent {agent_config['name']} installed[/green]")
+        else:
+            console.print(f"[yellow]No automated installer for {agent_config['name']}[/yellow]")
+            if agent_config.get("repo"):
+                console.print(f"[dim]Clone manually: git clone {agent_config['repo']}[/dim]")
+
+    if args.mise_packages:
+        for pkg in args.mise_packages:
+            console.print(f"[dim]Installing {pkg} via mise...[/dim]")
+            cmd = f"export HOME={user_home} && {user_home}/.local/bin/mise use -g {pkg}"
+            result = subprocess.run(
+                ["ssh", "-o", "StrictHostKeyChecking=no", f"{vm_user}@{ip}", cmd],
+                capture_output=True,
+                text=True,
+            )
+            if result.returncode != 0:
+                console.print(f"[red]Error: {result.stderr}[/red]")
+                sys.exit(1)
+            console.print(f"[green]✓ {pkg} installed[/green]")
+
+    if not args.agent and not args.mise_packages:
+        console.print("[yellow]Nothing to install. Use --agent or --mise-package[/yellow]")

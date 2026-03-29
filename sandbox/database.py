@@ -144,7 +144,17 @@ class SandboxDB:
             return sandbox
 
     def get_sandbox(self, name: str) -> Optional[Sandbox]:
-        """Get a sandbox by name"""
+        """Get a sandbox by name (excludes destroyed)"""
+        with self.connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM sandboxes WHERE name = ? AND status != 'destroyed'", (name,)
+            ).fetchone()
+            if row:
+                return self._row_to_sandbox(row)
+            return None
+
+    def get_sandbox_any(self, name: str) -> Optional[Sandbox]:
+        """Get a sandbox by name (including destroyed)"""
         with self.connect() as conn:
             row = conn.execute(
                 "SELECT * FROM sandboxes WHERE name = ?", (name,)

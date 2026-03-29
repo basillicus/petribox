@@ -24,6 +24,7 @@ from .commands import (
     cmd_port_forward_clean,
     cmd_port_forward_list,
     cmd_initial_setup,
+    cmd_install,
 )
 from .tui import run_create_tui
 
@@ -140,6 +141,12 @@ def main():
         type=str,
         choices=["minimal", "dev", "ai-researcher", "agentic"],
         help="Use a predefined configuration preset",
+    )
+    create_parser.add_argument(
+        "--agent",
+        type=str,
+        choices=["hermes", "openclaw", "zeroclaw"],
+        help="Install an AI agent at creation time",
     )
     create_parser.set_defaults(func=cmd_create)
 
@@ -395,6 +402,31 @@ def main():
         help="Non-interactive mode: accept all defaults without prompting",
     )
     setup_parser.set_defaults(func=cmd_initial_setup)
+
+    install_parser = subparsers.add_parser(
+        "install",
+        help="Install software into a sandbox",
+        description="Install packages or agents into an existing sandbox VM",
+    )
+    install_parser.add_argument(
+        "name",
+        help="Name of the sandbox",
+    )
+    install_parser.add_argument(
+        "--agent",
+        type=str,
+        choices=["hermes", "openclaw", "zeroclaw"],
+        help="Install an AI agent",
+    )
+    install_parser.add_argument(
+        "--mise-package",
+        action="append",
+        dest="mise_packages",
+        metavar="PACKAGE",
+        help="Install a package via mise (can be specified multiple times)",
+    )
+    install_parser.set_defaults(func=cmd_install)
+
 
     args = parser.parse_args()
 

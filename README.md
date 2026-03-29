@@ -529,14 +529,43 @@ hostshare /data 9p _netdev,trans=virtio,version=9p2000.L,rw 0 0
 
 ### Runtime (SSHFS from inside VM)
 
-From **inside the VM**, mount host directories:
+SSHFS allows mounting host directories from inside the VM. This requires:
+1. SSH server running on the host
+2. Host firewall allowing SSH from the libvirt network
+3. `fuse-sshfs` installed in the VM
 
+**Setup on host:**
 ```bash
-# Install SSHFS in VM
-sudo dnf install fuse-sshfs
+# Ensure SSH server is running
+sudo systemctl enable --now ssh
 
-# Mount host directory
-sshfs user@host-ip:/host/path /mnt/path
+# Allow SSH from libvirt network (Ubuntu/UFW)
+sudo ufw allow from 192.168.122.0/24
+
+# Or (Fedora/RHEL/firewalld)
+sudo firewall-cmd --zone=trusted --add-source=192.168.122.0/24 --permanent
+sudo firewall-cmd --reload
+```
+
+**From inside the VM:**
+```bash
+# fuse-sshfs is pre-installed on new VMs (via EPEL)
+# For existing VMs:
+sudo dnf config-manager --set-enabled crb
+sudo dnf install -y epel-release
+sudo dnf install -y fuse-sshfs
+
+# Mount host directory (gateway IP is usually 192.168.122.1)
+sshfs your-host-user@192.168.122.1:/home/your-host-user/data ~/data
+
+# Unmount when done
+fusermount -u ~/data
+```
+
+**Using `sandbox mount` helper:**
+```bash
+# Prints the exact command to run inside the VM
+pixi run sandbox mount myvm ~/data ~/data
 ```
 
 ---
@@ -567,6 +596,44 @@ sudo virsh domifaddr <name>
 # Verify SSH key was injected
 sudo virsh console <name>
 # Login and check: cat ~/.ssh/authorized_keys
+```
+
+### VM cannot reach host (SSH/SSHFS from VM to host fails)
+
+If you're trying to SSH or use SSHFS from inside a VM to the host, the connection may be blocked by the host's firewall.
+
+**On Ubuntu (UFW):**
+```bash
+# Check firewall status
+sudo ufw status
+
+# Allow SSH from libvirt network
+sudo ufw allow from 192.168.122.0/24
+
+# Or allow SSH from anywhere
+sudo ufw allow ssh
+```
+
+**On Fedora/RHEL/Rocky (firewalld):**
+```bash
+# Allow SSH
+sudo firewall-cmd --add-service=ssh --permanent
+sudo firewall-cmd --reload
+
+# Or allow all traffic from libvirt network
+sudo firewall-cmd --zone=trusted --add-source=192.168.122.0/24 --permanent
+sudo firewall-cmd --reload
+```
+
+**Test from inside the VM:**
+```bash
+# Ping the host (gateway IP)
+ping -c 3 192.168.122.1
+
+# Test SSH port
+nc -zv 192.168.122.1 22
+# Or without nc:
+timeout 5 bash -c 'cat < /dev/tcp/192.168.122.1/22' && echo "open" || echo "closed"
 ```
 
 ### Permission denied for virsh

@@ -245,7 +245,7 @@ def run_create_tui():
     args.disk = disk
     args.user = user
     args.ssh_key = Path(ssh_key) if ssh_key else None
-    args.password = None  # TUI doesn't support password yet
+    args.password = None
     args.network = "default"
     args.image = None
     args.dotfiles = dotfiles_source
@@ -256,9 +256,41 @@ def run_create_tui():
     args.shell = shell
     args.verbose = False
     args.tui = False
+    args.template = None
+    args.save_template = None
 
     from .commands import cmd_create
     cmd_create(args)
 
     console.print("\n[green]✓ Sandbox creation complete![/green]\n")
-    console.print(f"[dim]Connect with: sandbox ssh {name}[/dim]\n")
+    console.print(f"[dim]Connect with: sandbox connect {name}[/dim]\n")
+
+    try:
+        save_template = Prompt.ask(
+            "Save this configuration as a template?",
+            choices=["y", "n"],
+            default="n"
+        )
+        if save_template == "y":
+            template_name = Prompt.ask("Template filename", default=f"{name}-template.yaml")
+            template_path = Path(template_name)
+            if not template_path.suffix:
+                template_path = template_path.with_suffix(".yaml")
+            
+            import yaml
+            template = {
+                "ram": ram,
+                "cpus": cpus,
+                "disk": disk,
+                "user": user,
+                "preset": preset_choice if preset_choice != "custom" else None,
+                "dotfiles": dotfiles_source,
+                "shell": shell,
+                "mounts": mounts,
+            }
+            with open(template_path, "w") as f:
+                yaml.dump(template, f, default_flow_style=False)
+            console.print(f"[green]✓ Template saved: {template_path}[/green]")
+            console.print(f"[dim]Use with: sandbox create <new-name> --template {template_path}[/dim]")
+    except (EOFError, KeyboardInterrupt):
+        pass

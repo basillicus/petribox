@@ -60,51 +60,60 @@ def ssh_mount(
     options: Optional[dict] = None,
 ):
     """
-    Mount host directory in VM using SSHFS
+    Mount host directory in VM using SSHFS (runs sshfs from inside VM)
 
     Args:
-        host: Target host IP
-        user: Username
+        host: Target VM IP
+        user: VM username
         host_path: Path on host to mount
         vm_path: Mount point inside VM
     """
-    # First, create the mount point in VM
     ssh_connect(host, user, command=["mkdir", "-p", vm_path])
 
-    # Use SSHFS to mount
-    # Note: SSHFS runs on the host and mounts remote filesystem
-    # For mounting host->VM, we need a different approach
-    # We'll use 9p or instruct user to mount from inside VM
+    console.print("[dim]Installing fuse-sshfs in VM (requires EPEL)...[/dim]")
 
-    console.print("[yellow]SSHFS mounts from host to VM require additional setup[/yellow]")
-    console.print("[dim]Installing sshfs in VM...[/dim]")
-
-    # Install sshfs in VM
     ssh_connect(
         host,
         user,
         command=[
-            "sudo",
-            "dnf",
-            "install",
-            "-y",
-            "fuse-sshfs",
+            "sudo", "bash", "-c",
+            "dnf config-manager --set-enabled crb 2>/dev/null || true; "
+            "dnf install -y epel-release 2>/dev/null || true; "
+            "dnf install -y fuse-sshfs 2>/dev/null || true"
         ],
     )
 
-    # Create a reverse mount script in VM
-    mount_script = f"""#!/bin/bash
-# Mount {host_path} to {vm_path}
-# Run this from inside the VM, providing host details
+    gateway_ip = None
+    result = subprocess.run(
+        ["ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null",
+         "-o", "LogLevel=ERROR", f"{user}@{host}",
+         "ip route | grep default | awk '{print $3}'"],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode == 0:
+        gateway_ip = result.stdout.strip()
 
-HOST_IP=$(ip route | grep default | awk '{{print $3}}')
-sshfs {user}@${{HOST_IP}}:{host_path} {vm_path} -o allow_other
-"""
+    if not gateway_ip:
+        gateway_ip = "<GATEWAY_IP>"
 
-    console.print("[green]Mount instructions:[/green]")
-    console.print(f"[dim]1. From inside VM, run:[/dim]")
-    console.print(f"   sshfs {user}@<host-ip>:{host_path} {vm_path}")
-    console.print(f"[dim]2. Or use the gateway approach with 9p[/dim]")
+    host_user = options.get("host_user") if options else None
+    if not host_user:
+        import getpass
+        host_user = getpass.getuser()
+
+    console.print()
+    console.print("[yellow]SSHFS requires mounting from inside the VM:[/yellow]")
+    console.print()
+    console.print(f"  1. SSH into the VM:")
+    console.print(f"     [dim]sandbox connect vmname[/dim]")
+    console.print()
+    console.print(f"  2. Run this command inside the VM:")
+    console.print(f"     [cyan]sshfs {host_user}@{gateway_ip}:{host_path} {vm_path}[/cyan]")
+    console.print()
+    console.print(f"  3. Enter your host password when prompted")
+    console.print()
+    console.print("[dim]Note: For automatic mounts, use --mount at VM creation time (9p/virtiofs)[/dim]")
 
 
 def ssh_umount(host: str, user: str, vm_path: str):
