@@ -1329,6 +1329,13 @@ def cmd_install(args):
                 console.print(f"[red]Error installing agent: {result.stderr}[/red]")
                 sys.exit(1)
             console.print(f"[green]✓ Agent {agent_config['name']} installed[/green]")
+            
+            if agent_config.get("setup_command"):
+                console.print()
+                console.print(f"[cyan]Next step - Configure the agent:[/cyan]")
+                console.print(f"  SSH into the VM and run: [green]{agent_config['setup_command']}[/green]")
+                if agent_config.get("setup_notes"):
+                    console.print(f"  [dim]{agent_config['setup_notes']}[/dim]")
         else:
             console.print(f"[yellow]No automated installer for {agent_config['name']}[/yellow]")
             if agent_config.get("repo"):
