@@ -617,9 +617,8 @@ def get_preset_config(preset_name: str) -> dict:
                 "wget",
                 "gcc",
                 "make",
-                "nodejs",
-                "npm",
             ],
+            "mise_packages": ["node@20"],
         },
         "ai-researcher": {
             "packages": [
@@ -630,10 +629,9 @@ def get_preset_config(preset_name: str) -> dict:
                 "curl",
                 "wget",
                 "gcc",
-                "git",
                 "tmux",
-                "htop",
             ],
+            "mise_packages": ["python@3.12"],
             "pip_packages": [
                 "jupyter",
                 "jupyterlab",
@@ -653,9 +651,8 @@ def get_preset_config(preset_name: str) -> dict:
                 "wget",
                 "gcc",
                 "tmux",
-                "htop",
-                "docker",
             ],
+            "mise_packages": ["python@3.12", "node@20"],
             "pip_packages": [
                 "jupyterlab",
                 "langchain",
