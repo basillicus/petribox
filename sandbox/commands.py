@@ -618,7 +618,7 @@ def get_preset_config(preset_name: str) -> dict:
                 "gcc",
                 "make",
             ],
-            "mise_packages": ["node@20"],
+            "mise_packages": ["node@24"],
         },
         "ai-researcher": {
             "packages": [
@@ -652,7 +652,7 @@ def get_preset_config(preset_name: str) -> dict:
                 "gcc",
                 "tmux",
             ],
-            "mise_packages": ["python@3.12", "node@20"],
+            "mise_packages": ["python@3.12", "node@24"],
             "pip_packages": [
                 "jupyterlab",
                 "langchain",
