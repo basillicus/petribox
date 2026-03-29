@@ -66,6 +66,11 @@ def create_seed_iso(
             if pkg not in all_packages:
                 all_packages.append(pkg)
 
+    if agent_config and "packages" in agent_config:
+        for pkg in agent_config["packages"]:
+            if pkg not in all_packages:
+                all_packages.append(pkg)
+
     packages_yaml = "\n".join(f"  - {pkg}" for pkg in all_packages)
 
     ssh_key_clean = ' '.join(ssh_key.split())

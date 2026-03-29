@@ -1301,6 +1301,18 @@ def cmd_install(args):
         agent_config = get_agent_config(args.agent)
         console.print(f"[green]Installing agent: {agent_config['name']}[/green]")
 
+        if agent_config.get("packages"):
+            packages = " ".join(agent_config["packages"])
+            console.print(f"[dim]Installing system packages: {packages}...[/dim]")
+            cmd = f"sudo dnf install -y {packages}"
+            result = subprocess.run(
+                ["ssh", "-o", "StrictHostKeyChecking=no", f"{vm_user}@{ip}", cmd],
+                capture_output=True,
+                text=True,
+            )
+            if result.returncode != 0:
+                console.print(f"[yellow]Warning: Failed to install packages: {result.stderr}[/yellow]")
+
         if agent_config.get("mise_packages"):
             for pkg in agent_config["mise_packages"]:
                 console.print(f"[dim]Installing {pkg} via mise...[/dim]")

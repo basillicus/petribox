@@ -38,7 +38,7 @@ AGENTS = {
         "description": "Personal AI Assistant. Zero overhead. Zero compromise. 100% Rust. 100% Agnostic. Runs on $10 hardware with <5MB RAM - 99% less memory than OpenClaw and 98% cheaper than a Mac mini!",
         "install_script": "git clone https://github.com/zeroclaw-labs/zeroclaw.git ~/zeroclaw && cd ~/zeroclaw && ./install.sh",
         "mise_packages": ["rust"],
-        "packages": ["git", "curl", "build-essential"],
+        "packages": ["git", "curl", "gcc", "gcc-c++", "make"],
         "repo": "https://github.com/zeroclaw-labs/zeroclaw",
         "setup_command": './install.sh --api-key "sk-..." --provider openrouter',
         "setup_notes": "Non-interactive setup with API key, or use env vars: ZEROCLAW_API_KEY and ZEROCLAW_PROVIDER",
