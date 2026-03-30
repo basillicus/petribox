@@ -2,6 +2,8 @@
 
 Get your first AI sandbox VM running in 5 minutes.
 
+> **Platform:** Tested on Linux only. Windows users may need WSL2 with libvirt. MacOS has not tested.
+
 ## Prerequisites
 
 ```bash
@@ -18,8 +20,8 @@ sudo systemctl enable --now libvirtd
 ## One-Time Setup
 
 ```bash
-# Clone and enter the project
-cd vmisos
+# Install pixi if you haven't
+curl -fsSL https://pixi.sh/install.sh | sh
 
 # Run automated setup
 pixi run sandbox initial-setup
@@ -28,35 +30,8 @@ pixi run sandbox initial-setup
 This will:
 1. Check for required tools
 2. Create SSH keys (or use existing)
-3. Download Rocky Linux 9 image (~2GB)
-4. Set up the libvirt network (prompts for sudo)
-
-## Networking
-
-### Option A: Libvirt Network (Recommended)
-
-When prompted during `initial-setup` or `create`, choose to create the network with sudo.
-
-**Benefits:**
-- Each VM gets a unique IP (192.168.123.x)
-- VMs can communicate with each other
-- Direct SSH access from host
-- VMs can reach the Internet
-
-**Requires:** One-time sudo for network creation, then all VM operations are sudo-free.
-
-### Option B: SLIRP (User-Mode)
-
-If you don't have sudo or prefer not to use it:
-
-```bash
-pixi run sandbox create my-vm --slirp
-```
-
-**Limitations:**
-- Fixed IP (10.0.2.15) - not reachable from host
-- No VM-to-VM communication
-- Requires port forwarding for host access
+3. Download Rocky Linux 9 image (~0.62GB)
+4. Set up the libvirt network
 
 ## Create Your First Sandbox
 
@@ -67,31 +42,19 @@ pixi run sandbox create --tui
 # Or with a preset
 pixi run sandbox create ai-lab --preset ai-researcher
 
-# Or with SLIRP (no sudo)
-pixi run sandbox create test-vm --slirp
+# With custom resources
+pixi run sandbox create my-vm --preset dev --ram 8192 --cpus 4
 ```
 
 ## Connect to Your Sandbox
 
-### Libvirt Network Mode
-
 ```bash
-# Direct SSH
-pixi run sandbox ssh my-vm
+# Using the connect wrapper (auto-discovers IP)
+pixi run sandbox connect my-vm
 
 # Or with standard SSH
 pixi run sandbox list  # Get IP
-ssh sandbox@192.168.123.x
-```
-
-### SLIRP Mode
-
-```bash
-# Port forward SSH
-pixi run sandbox port-forward my-vm 22 --local-port 2222
-
-# Then connect
-ssh -p 2222 sandbox@localhost
+ssh sandbox@192.168.122.xxx
 ```
 
 ## Common Commands
@@ -114,6 +77,14 @@ pixi run sandbox console my-vm     # Serial console
 | `ai-researcher` | 8GB | 4 | ML/AI with Jupyter |
 | `agentic` | 8GB | 4 | Agentic AI with Docker |
 
+## Tips
+
+1. **First boot**: Takes 2-3 minutes (cloud-init)
+2. **Subsequent boots**: ~15 seconds
+3. **SSH only**: No password by default, uses your SSH key
+4. **Stop VMs**: Use `sandbox down` when not in use (saves CPU/RAM)
+5. **Disk freed**: `sandbox delete` removes VM and frees disk space
+
 ## Troubleshooting
 
 ### VM won't boot
@@ -121,11 +92,8 @@ pixi run sandbox console my-vm     # Serial console
 pixi run sandbox console my-vm  # Check console output
 ```
 
-### Can't connect via SSH
+### Can't connect via SSH or packages are not installed
 Wait 2-3 minutes for cloud-init to complete on first boot.
-
-### Network not found
-Run `pixi run sandbox initial-setup` again, or use `--slirp` flag.
 
 ---
 

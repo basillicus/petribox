@@ -5,13 +5,29 @@ Quick and isolated Rocky Linux 9 sandboxes for AI experiments, Agentic AI develo
 ## Features
 
 - **One-command VM creation** - Fully configured Rocky Linux 9 VMs with cloud-init
-- **SSH access** - via sanbox connect command or  direct SSH to VMs (standard `ssh user@ip`)
+- **SSH access** - Via `sandbox connect` command or direct SSH to VMs
 - **Lifecycle management** - Create, list, start, stop, delete VMs
-- **Data sharing** - Mount host directories via 9p/virtiofs or SSHFS
-- **Dotfiles support** - Apply your configs from git, local path, or presets
+- **Data sharing** - Mount host directories via 9p or SSHFS
+- **Dotfiles support** - Apply your configs from git repo, local directory, or built-in presets
 - **Configuration files** - YAML configs for packages, tools, and environment
 - **Interactive TUI** - Menu-driven creation with preset configurations
-- **Extensible** - Python-based, easy to add new features
+- **Port forwarding** - Forward VM ports to localhost with background tunnel management
+- **Agent installation** - Install AI agents (Hermes, OpenClaw, ZeroClaw) at VM creation
+- **Mise auto-installation** - Version manager automatically installed with dependencies
+
+---
+
+## Platform Requirements
+
+**Linux** This tool requires:
+
+- `libvirt` with QEMU/KVM
+- `virt-install`, `virsh`, `qemu-img`, `cloud-localds`
+- Python 3.10+
+
+**Windows users:** This tool does **not** work on native Windows. Use **WSL2** with libvirt configured inside the WSL2 environment. Not tested
+
+**macOS users:** Not tested.
 
 ---
 
@@ -19,40 +35,26 @@ Quick and isolated Rocky Linux 9 sandboxes for AI experiments, Agentic AI develo
 
 ### One-Time Setup
 
-This tool is highly experimental and  has only been tested on Linux. On Windows it would need to be run on WSL, but has not been tested. 
-This tool uses pixi to manage the environments, you can install pixi as:
+Install pixi first:
 
 ```bash
 curl -fsSL https://pixi.sh/install.sh | sh
 ```
 
-If your system doesn't have curl, you can use wget:
+Then run the automated setup:
 
 ```bash
-wget -qO- https://pixi.sh/install.sh | sh
-```
-Run the automated setup to install prerequisites, create SSH keys, and download Rocky Linux:
-This will create a SSH key if you do not have one, and will use the key to connect to the VMs. Password access is deactivated by default.
-
-```bash
-# Run initial setup (guides you through each step)
 pixi run sandbox initial-setup
-
-# Optional: Specify Rocky Linux version (9 or 10)
-pixi run sandbox initial-setup --rocky-version 10
-
-# Optional: Specify custom image location
-pixi run sandbox initial-setup --image-path /path/to/image.qcow2
 ```
 
-**Note:** You will be prompted for your sudo password when creating or managing sandboxes. This is required because libvirt needs system-level access to create VMs and manage storage.
-
-The setup will:
+This will:
 1. Check for required tools and show install commands if missing
 2. Verify libvirt service is running
 3. Create or reuse SSH keys for VM access
 4. Download and verify Rocky Linux image (checksum verified)
 5. Suggest a convenient shell alias
+
+**Note:** You will be prompted for your sudo password when creating or managing sandboxes. This is required because libvirt needs system-level access.
 
 ### Prerequisites
 
@@ -66,134 +68,56 @@ sudo apt install virtinst qemu-utils libvirt-clients libvirt-daemon-system
 # Start libvirt
 sudo systemctl enable --now libvirtd
 
-# Add user to libvirt group (optional, to run without sudo)
+# Add user to  libvirt group
 sudo usermod -aG libvirt $USER
 newgrp libvirt
 ```
 
-### Setup with Pixi
-
-After installing system prerequisites, set up the Python environment:
-
-```bash
-# Install dependencies in isolated environment
-pixi install
-
-# Add alias for convenience (optional)
-echo 'alias sandbox="cd $(pwd) && pixi run sandbox"' >> ~/.bashrc
-source ~/.bashrc
-```
-
-Now you're ready to create sandboxes!
-
 ### Create Your First Sandbox
 
-NOTE: If you created the alias, you can skip the 'pixi run' part of the commands, and use simply the alias you created. (i.e instead of 'pixi run sandbox create --tui', simply run 'sandbox create --tui' )
-
 ```bash
-# Using TUI (interactive)
+# Interactive mode (recommended for first time)
 pixi run sandbox create --tui
 
-# Or directly with preset
+# Or directly with a preset
 pixi run sandbox create my-ai-lab --preset ai-researcher --ram 8192 --cpus 4
 ```
 
 ### Connect to Your Sandbox
 
-You have two options to connect:
-
-**Option 1: Using the `connect` wrapper (convenient)**
 ```bash
-# The sandbox tool looks up the IP for you
+# Option 1: Using the connect wrapper (convenient)
 pixi run sandbox connect my-sandbox
+
+# Option 2: Using standard SSH
+pixi run sandbox list  # Get IP
+ssh sandbox@192.168.122.xxx
 ```
 
-**Option 2: Using standard SSH (more control)**
+NOTE: If you have kitty, you may want to run once: 
 ```bash
-# 1. Get the VM IP address
-pixi run sandbox list
-# or
-sudo virsh domifaddr <vm-name>
-
-# 2. SSH directly 
-ssh <username>@<ip-address>
-
-# Example:
-ssh user@192.168.122.117
+kitten ssh sandbox@192.168.122.xxx
 ```
+This will pass all the necesary files to have a fully working terminal on the remote machine.
 
-If you are using kitty, you may want to run once the following command to have a fully working terminal:
-
-```bash
-kitten ssh user@192.168.122.117
-```
-
-**Recommendation:** Use `sandbox connect` for quick access from your host machine. Use standard `ssh` when you need more control, want to connect from IDEs, or are connecting from a different machine.
 
 ---
 
-## Workflow
-
-### Typical Usage Pattern
-
-```bash
-# 1. Create a sandbox (one-time)
-pixi run sandbox create my-experiment --preset ai-researcher
-
-# 2. Get connection info
-pixi run sandbox list
-# Output shows: Name, IP, Username, Status
-
-# 3. Connect (two options)
-#    Option A: Use the connect wrapper (convenient)
-pixi run sandbox connect my-experiment
-
-#    Option B: Use standard SSH (more control, works from anywhere)
-ssh myuser@192.168.122.xxx
-
-# 4. Work in the VM as you would any Linux machine
-#    - Install packages: sudo dnf install ...
-#    - Run experiments: python3 train.py
-#    - Edit files: nvim script.py
-
-# 5. When done, stop the VM (saves resources)
-pixi run sandbox down my-experiment
-
-# 6. Resume later
-pixi run sandbox up my-experiment
-pixi run sandbox connect my-experiment
-# or: ssh myuser@192.168.122.xxx
-```
-
----
-
-## Sandbox CLI Commands
+## CLI Commands
 
 ### VM Management
 
-```bash
-# Create a new sandbox
-pixi run sandbox create <name> [options]
-pixi run sandbox create --tui  # Interactive mode
-
-# List all sandboxes
-pixi run sandbox list
-
-# Show detailed status
-pixi run sandbox status <name>
-
-# Start a stopped sandbox
-pixi run sandbox up <name>
-
-# Stop a running sandbox
-pixi run sandbox down <name>
-
-# Delete a sandbox (removes VM and disk)
-pixi run sandbox delete <name>
-
-# Connect via SSH (wrapper command)
-pixi run sandbox connect <name>
-```
+| Command | Description |
+|---------|-------------|
+| `sandbox create <name> [options]` | Create a new sandbox |
+| `sandbox create --tui` | Interactive creation mode |
+| `sandbox list` | List all sandboxes |
+| `sandbox status <name>` | Show detailed status |
+| `sandbox up <name>` | Start a stopped sandbox |
+| `sandbox down <name>` | Stop a running sandbox |
+| `sandbox delete <name>` | Delete a sandbox (removes VM and disk) |
+| `sandbox connect <name>` | SSH into a sandbox |
+| `sandbox console <name>` | Connect to serial console |
 
 ### Create Options
 
@@ -205,233 +129,63 @@ pixi run sandbox connect <name>
 | `--user NAME` | Username | sandbox |
 | `--password PASS` | User password (optional) | none |
 | `--ssh-key PATH` | SSH public key file | ~/.ssh/id_ed25519.pub |
-| `--shell TYPE` | Shell to configure (bash/zsh) | bash |
+| `--shell TYPE` | Shell (bash/zsh) | bash |
 | `--preset NAME` | Configuration preset | none |
-| `--dotfiles SRC` | Dotfiles: git URL, local path, or preset | none |
-| `--mount PATH:PATH` | Mount host directory (repeatable) | none |
 | `--config FILE` | YAML configuration file | none |
-| `--tui` | Interactive creation mode | false |
+| `--dotfiles SRC` | Dotfiles source | none |
+| `--mount HOST:VM` | Mount host directory | none |
+| `--agent NAME` | Install AI agent at creation | none |
 
-### Examples
+### Port Forwarding
 
 ```bash
-# Quick development sandbox
-pixi run sandbox create devbox --preset dev
+# Forward VM port to localhost
+sandbox port-forward <name> <port> [--local-port PORT] [-b]
 
-# AI research environment
-pixi run sandbox create ai-lab --preset ai-researcher --ram 16384 --cpus 6
+# List active tunnels
+sandbox port-forward-list
 
-# With custom dotfiles from git
-pixi run sandbox create mybox --dotfiles https://github.com/youruser/dotfiles
+# Stop a tunnel
+sandbox port-forward-stop <name> <port>
 
-# With shared data directory
-pixi run sandbox create data-sandbox \
-  --mount ~/datasets:/datasets \
-  --mount ~/projects:/projects
+# Clean up stale tunnels
+sandbox port-forward-clean
+```
 
-# With configuration file
-pixi run sandbox create custom --config my-config.yaml
+### Install Command
 
-# Agentic AI development with Docker
-pixi run sandbox create agent-dev --preset agentic --ram 8192
+Install software into a running sandbox:
+
+```bash
+# Install an AI agent
+sandbox install <name> --agent hermes
+
+# Install mise packages
+sandbox install <name> --mise-package node@22 --mise-package python@3.12
 ```
 
 ---
 
-## Rocky Linux Basics
+## Presets
 
-Once connected to your sandbox via SSH, here are the essential commands for managing your Rocky Linux 9 VM.
+| Preset | RAM | CPUs | Disk | Use Case |
+|--------|-----|------|------|----------|
+| `minimal` | 2GB | 1 | 15GB | Basic testing, lightweight tasks |
+| `dev` | 4GB | 2 | 25GB | General development |
+| `ai-researcher` | 8GB | 4 | 40GB | ML/AI work with Jupyter |
+| `agentic` | 8GB | 4 | 50GB | Agentic AI with LangChain |
 
-### Package Management (DNF)
+### What Each Preset Includes
 
-```bash
-# Install packages
-sudo dnf install <package-name>
+**All presets include:**
+- Mise (version manager) auto-installed
+- System dependencies: libatomic, openssl-devel, bzip2-devel, libffi-devel
+- Basic tools: vim, python3, git, curl, wget, tmux
 
-# Install multiple packages
-sudo dnf install git vim python3-pip nodejs
-
-# Search for packages
-sudo dnf search <keyword>
-
-# Update all packages
-sudo dnf update
-
-# Update specific package
-sudo dnf update <package-name>
-
-# Remove packages
-sudo dnf remove <package-name>
-
-# List installed packages
-dnf list installed
-
-# Show package info
-dnf info <package-name>
-
-# Install without weak dependencies (minimal install)
-sudo dnf install --setopt=install_weak_deps=False <package>
-```
-
-### Common Package Groups
-
-```bash
-# Development tools
-sudo dnf groupinstall "Development Tools"
-
-# Install C/C++ compilers
-sudo dnf install gcc gcc-c++ make
-
-# Install Python development
-sudo dnf install python3 python3-pip python3-devel
-
-# Install Node.js
-sudo dnf install nodejs npm
-
-# Install Docker
-sudo dnf install docker docker-compose
-sudo systemctl enable --now docker
-sudo usermod -aG docker $USER
-
-# Install essential tools
-sudo dnf install vim git curl wget tmux htop tree jq
-```
-
-### Mise Version Manager (Auto-installed)
-
-**Mise** is automatically installed in all sandboxes along with required system dependencies (`libatomic`, `openssl-devel`, `bzip2-devel`, `libffi-devel`).
-
-**Shell activation** is automatically configured for bash (~/.bashrc) and/or zsh (~/.zshrc).
-
-```bash
-# Install global versions of tools
-mise use -g node@24
-mise use -g python@3.12
-mise use -g go@1.21
-
-# Install project-specific versions (creates .mise.toml)
-mise use node@18
-mise use python@3.11
-
-# List installed versions
-mise ls
-
-# List current active versions
-mise current
-
-# Update a tool
-mise upgrade node
-
-# Update all tools
-mise upgrade
-
-# Remove a tool
-mise uninstall node@18
-```
-
-**Popular mise packages:**
-- `node@24`, `node@22`, `node@lts`
-- `python@3.12`, `python@3.11`
-- `go@1.26.1`, `go@latest`
-- `rust@latest`
-- `java@17`, `java@21`
-- `bun@latest`, `deno@latest`
-- `kubectl@latest`, `terraform@latest`, `gh@latest`
-
-**Shell Options:**
-```bash
-# Create with bash (default)
-pixi run sandbox create mybox --shell bash
-
-# Create with zsh
-pixi run sandbox create mybox --shell zsh
-```
-
-### System Management
-
-```bash
-# Check system info
-hostnamectl
-uname -a
-cat /etc/os-release
-
-# Check disk usage
-df -h
-du -sh /path/to/dir
-
-# Check memory
-free -h
-
-# Check running processes
-top
-htop
-ps aux
-
-# Check services
-systemctl list-units --type=service
-systemctl status <service-name>
-
-# Start/stop/restart services
-sudo systemctl start <service>
-sudo systemctl stop <service>
-sudo systemctl restart <service>
-sudo systemctl enable <service>  # Start on boot
-```
-
-### User Management
-
-```bash
-# Create new user
-sudo useradd -m -G wheel newuser
-
-# Set password
-sudo passwd newuser
-
-# Delete user
-sudo userdel -r username
-
-# Switch to another user
-su - username
-
-# Run command as another user
-sudo -u username command
-```
-
-### File Permissions
-
-```bash
-# Change ownership
-sudo chown user:group file
-
-# Change permissions
-chmod 755 file      # rwxr-xr-x
-chmod 644 file      # rw-r--r--
-chmod +x script.sh  # Make executable
-
-# View permissions
-ls -la
-```
-
-### Network
-
-```bash
-# Check IP address
-ip addr show
-hostname -I
-
-# Check network connections
-ss -tulpn
-netstat -tulpn
-
-# Test connectivity
-ping google.com
-curl -I https://example.com
-
-# Check firewall
-sudo firewall-cmd --list-all
-sudo firewall-cmd --add-port=8080/tcp --permanent
-sudo firewall-cmd --reload
-```
+**Additional by preset:**
+- **dev**: gcc, make, node@24 via mise
+- **ai-researcher**: python3-pip, python@3.12 via mise, jupyterlab, numpy, pandas, matplotlib, scikit-learn
+- **agentic**: docker, node@24 + python@3.12 via mise, jupyterlab, langchain, langgraph, pydantic, httpx
 
 ---
 
@@ -444,14 +198,12 @@ Create YAML configs for reproducible environments:
 packages:
   - vim-enhanced
   - python3-pip
-  - nodejs
   - git
   - tmux
 
 mise_packages:
   - node@20
-  - python@latest
-  - go@1.21
+  - python@3.12
 
 pip_packages:
   - jupyterlab
@@ -470,123 +222,108 @@ runcmd:
 pixi run sandbox create mybox --config my-config.yaml
 ```
 
-**Mise** is automatically installed during VM creation. Global packages from `mise_packages` are installed and available in your PATH.
-
-See `examples/` for complete configuration examples including mise setups.
-
----
-
-## Presets
-
-| Preset | RAM | CPUs | Disk | Use Case |
-|--------|-----|------|------|----------|
-| `minimal` | 2GB | 1 | 15GB | Basic testing, lightweight tasks |
-| `dev` | 4GB | 2 | 25GB | General development |
-| `ai-researcher` | 8GB | 4 | 40GB | ML/AI work with Jupyter |
-| `agentic` | 8GB | 4 | 50GB | Agentic AI with LangChain, Docker |
-
-### Package Lists by Preset
-
-**All presets include mise** (version manager) auto-installed.
-
-**minimal:**
-- vim, python3, git, curl, wget, tmux, htop
-
-**dev:**
-- All minimal packages + gcc, make, nodejs (via mise), npm (via mise)
-
-**ai-researcher:**
-- All dev packages + python3-pip, jupyterlab, numpy, pandas, scikit-learn, matplotlib
-- mise: python@latest, jupyterlab, numpy, pandas
-
-**agentic:**
-- All ai-researcher packages + docker, langchain, langgraph, pydantic
-- mise: node@20, python@latest, langchain tools
+See `examples/` for complete configuration examples.
 
 ---
 
 ## Dotfiles
 
-Apply your development environment automatically at VM creation:
+Apply your development environment automatically after VM creation. Three sources are supported:
+
+### From Git Repository
 
 ```bash
-# From git repository
 pixi run sandbox create mybox --dotfiles https://github.com/youruser/dotfiles
+```
 
-# From local directory
+The tool clones your dotfiles repo inside the VM and:
+- Runs `install.sh` or `make install` if present
+- Otherwise, symlinks dotfiles from `~/.dotfiles` to your home directory
+
+### From Local Directory
+
+```bash
 pixi run sandbox create mybox --dotfiles ~/.dotfiles
+```
 
-# Using built-in preset
+Your local dotfiles are tarballed, copied to the VM via SCP, extracted, and symlinked to the home directory.
+
+### Built-in Presets
+
+```bash
 pixi run sandbox create mybox --dotfiles dev
 ```
 
-Built-in presets:
-- `minimal` - Basic vim configuration
-- `dev` - Enhanced vim, tmux, git config
-- `ai-researcher` - + Jupyter configuration
+Available presets:
+- `minimal` - Basic vim and inputrc configuration
+- `dev` - Enhanced vim, tmux, and git config
+- `ai-researcher` - + Jupyter configuration and ML aliases
+
+---
+
+## AI Agents
+
+Install AI agents at VM creation or into existing VMs:
+
+```bash
+# At creation
+pixi run sandbox create agent-box --agent hermes
+
+# Into existing VM
+sandbox install my-vm --agent openclaw
+```
+
+Available agents:
+- **hermes** - AI agent for autonomous task execution
+- **openclaw** - AI assistant for email, calendar, tasks via chat apps
+- **zeroclaw** - Lightweight Rust-based AI assistant
 
 ---
 
 ## Data Sharing
 
-### At Creation (9p/virtiofs)
+### 9p Mounts (at creation)
 
 ```bash
 pixi run sandbox create mybox \
   --mount ~/data:/data \
-  --mount ~/projects:/projects \
-  --mount-type 9p
+  --mount ~/projects:/projects
 ```
 
-**Note:** 9p mounts require VM restart to activate:
+Note: 9p mounts require VM restart to activate.
+
+### SSHFS (runtime, from inside VM)
+
 ```bash
-pixi run sandbox down mybox && pixi run sandbox up mybox
-```
-
-Inside the VM, add to `/etc/fstab`:
-```
-hostshare /data 9p _netdev,trans=virtio,version=9p2000.L,rw 0 0
-```
-
-### Runtime (SSHFS from inside VM)
-
-SSHFS allows mounting host directories from inside the VM. This requires:
-1. SSH server running on the host
-2. Host firewall allowing SSH from the libvirt network
-3. `fuse-sshfs` installed in the VM
-
-**Setup on host:**
-```bash
-# Ensure SSH server is running
-sudo systemctl enable --now ssh
-
-# Allow SSH from libvirt network (Ubuntu/UFW)
-sudo ufw allow from 192.168.122.0/24
-
-# Or (Fedora/RHEL/firewalld)
-sudo firewall-cmd --zone=trusted --add-source=192.168.122.0/24 --permanent
-sudo firewall-cmd --reload
-```
-
-**From inside the VM:**
-```bash
-# fuse-sshfs is pre-installed on new VMs (via EPEL)
-# For existing VMs:
-sudo dnf config-manager --set-enabled crb
-sudo dnf install -y epel-release
-sudo dnf install -y fuse-sshfs
-
-# Mount host directory (gateway IP is usually 192.168.122.1)
+# From inside the VM
 sshfs your-host-user@192.168.122.1:/home/your-host-user/data ~/data
-
-# Unmount when done
-fusermount -u ~/data
 ```
 
-**Using `sandbox mount` helper:**
+---
+
+## Rocky Linux Quick Reference
+
+Inside your sandbox:
+
 ```bash
-# Prints the exact command to run inside the VM
-pixi run sandbox mount myvm ~/data ~/data
+# Package management
+sudo dnf install <package>
+sudo dnf update
+sudo dnf search <keyword>
+
+# Mise (version manager)
+mise use -g node@24
+mise use -g python@3.12
+mise ls
+
+# System info
+hostnamectl
+df -h
+free -h
+
+# Network
+ip addr show
+ping google.com
 ```
 
 ---
@@ -595,71 +332,21 @@ pixi run sandbox mount myvm ~/data ~/data
 
 ### VM won't boot
 ```bash
-# Check VM status
-pixi run sandbox list
-
-# View console
-sudo virsh console <name>
-
-# Check libvirt logs
+sandbox console <name>  # Check console output
 sudo journalctl -u libvirtd
 ```
 
-### Can't connect via SSH
+### Can't connect via SSH 
+Wait 2-3 minutes for cloud-init on first boot. Then:
 ```bash
-# Wait 2-3 minutes for cloud-init (first boot only)
-# Check if VM is running
-pixi run sandbox status <name>
-
-# Check IP address
+sandbox status <name>
 sudo virsh domifaddr <name>
-
-# Verify SSH key was injected
-sudo virsh console <name>
-# Login and check: cat ~/.ssh/authorized_keys
 ```
-
-### VM cannot reach host (SSH/SSHFS from VM to host fails)
-
-If you're trying to SSH or use SSHFS from inside a VM to the host, the connection may be blocked by the host's firewall.
-
-**On Ubuntu (UFW):**
-```bash
-# Check firewall status
-sudo ufw status
-
-# Allow SSH from libvirt network
-sudo ufw allow from 192.168.122.0/24
-
-# Or allow SSH from anywhere
-sudo ufw allow ssh
-```
-
-**On Fedora/RHEL/Rocky (firewalld):**
-```bash
-# Allow SSH
-sudo firewall-cmd --add-service=ssh --permanent
-sudo firewall-cmd --reload
-
-# Or allow all traffic from libvirt network
-sudo firewall-cmd --zone=trusted --add-source=192.168.122.0/24 --permanent
-sudo firewall-cmd --reload
-```
-
-**Test from inside the VM:**
-```bash
-# Ping the host (gateway IP)
-ping -c 3 192.168.122.1
-
-# Test SSH port
-nc -zv 192.168.122.1 22
-# Or without nc:
-timeout 5 bash -c 'cat < /dev/tcp/192.168.122.1/22' && echo "open" || echo "closed"
-```
+### Not all packages are installed
+Wait 2-3 minutes for cloud-init on first boot. You may be able to connect to the VM before all packages have been fully installed. 
 
 ### Permission denied for virsh
 ```bash
-# Add user to libvirt group
 sudo usermod -aG libvirt $USER
 newgrp libvirt
 ```
@@ -673,59 +360,7 @@ sudo virsh net-autostart default
 
 ### VM stuck in "creating" status
 ```bash
-# Force delete from database
-pixi run sandbox delete <name> --force
-
-# Clean up any leftover VMs
-sudo virsh list --all
-sudo virsh destroy <name> 2>/dev/null
-sudo virsh undefine <name> --remove-all-storage 2>/dev/null
-```
-
-### Disk Space Management
-
-**Yes, deleting a VM removes its disk and frees space!**
-
-When you run `sandbox delete <name>`:
-1. VM is stopped (if running)
-2. VM definition is removed from libvirt
-3. **Disk image is deleted** (frees disk space)
-4. Database record is marked as destroyed
-
-```bash
-# Check disk usage before
-du -sh /var/lib/libvirt/images/
-
-# Delete VM
-pixi run sandbox delete mybox
-
-# Check disk usage after (space is freed)
-du -sh /var/lib/libvirt/images/
-```
-
-To verify a specific VM disk is removed:
-```bash
-ls -lh /var/lib/libvirt/images/<vm-name>.qcow2
-# Should show: No such file or directory
-```
-
-### Sudo Usage
-
-The sandbox tool uses `sudo` for VM operations (creation, start, stop, etc.) as it needs to interact with libvirt and system storage.
-
-**Optional: Configure passwordless sudo for libvirt**
-
-To avoid entering your password each time:
-
-```bash
-# Add user to libvirt group (optional, for non-sudo virsh commands)
-sudo usermod -aG libvirt $USER
-
-# Create sudoers rule for passwordless libvirt access
-sudo visudo -f /etc/sudoers.d/libvirt
-
-# Add this line:
-%libvirt ALL=(ALL) NOPASSWD: /usr/bin/virsh, /usr/bin/virt-install, /usr/bin/qemu-img
+sandbox delete <name> --force
 ```
 
 ---
@@ -733,18 +368,20 @@ sudo visudo -f /etc/sudoers.d/libvirt
 ## Architecture
 
 ```
-sandbox CLI (Creation & Management Only)
-├── database.py      # SQLite tracking of VMs (~/.sandbox/sandboxes.db)
-├── libvirt_ops.py   # VM creation via virt-install
-├── commands.py      # CLI command implementations
-├── ssh_ops.py       # SSH operations
-├── mount_ops.py     # 9p/virtiofs mounts
-├── dotfiles.py      # Dotfiles management
-├── config_loader.py # YAML config parsing
-└── tui.py           # Interactive creation UI
-
-Daily Usage
-└── Standard SSH (ssh user@ip) - No tool needed
+sandbox/                   # Python package
+├── __init__.py
+├── __main__.py           # Entry point
+├── cli.py                # CLI argument parsing
+├── commands.py           # Command implementations
+├── database.py           # SQLite database (~/.sandbox/sandboxes.db)
+├── libvirt_ops.py        # Libvirt operations
+├── ssh_ops.py            # SSH operations
+├── mount_ops.py          # 9p/virtiofs mounts
+├── dotfiles.py           # Dotfiles management
+├── config_loader.py      # Config loading
+├── tunnel_manager.py     # Port-forward tracking
+├── agents.py             # AI agent configurations
+└── tui.py                # Interactive TUI
 ```
 
 ---
@@ -754,38 +391,23 @@ Daily Usage
 ```
 vmisos/
 ├── sandbox/                  # Python package
-│   ├── __init__.py
-│   ├── __main__.py           # Entry point
-│   ├── cli.py                # CLI argument parsing
-│   ├── commands.py           # Command implementations
-│   ├── database.py           # SQLite database
-│   ├── libvirt_ops.py        # Libvirt operations
-│   ├── ssh_ops.py            # SSH operations
-│   ├── mount_ops.py          # Mount operations
-│   ├── dotfiles.py           # Dotfiles management
-│   ├── config_loader.py      # Config loading
-│   ├── tui.py                # Interactive TUI
-│   └── requirements.txt      # Python dependencies
-├── examples/                 # Example configs
-│   ├── config-minimal.yaml
-│   ├── config-agentic.yaml
-│   └── config-ai-researcher.yaml
+├── examples/                 # Example YAML configs
 ├── pixi.toml                 # Pixi environment
 ├── sandbox.sh                # Wrapper script
-├── QUICK_REFERENCE.md        # Quick command reference
-└── Rocky-9-*.qcow2           # Base image
+├── README.md                 # This file
+├── QUICK_START.md            # Getting started guide
+└── Rocky-9-*.qcow2           # Base image (downloaded)
 ```
 
 ---
 
 ## Extending
 
-The tool is designed to be easily extensible:
-
 1. **New commands** - Add to `cli.py` and implement in `commands.py`
-2. **New presets** - Add to `PRESETS` dict in `commands.py` or `tui.py`
+2. **New presets** - Add to `PRESETS` dict in `commands.py` and `tui.py`
 3. **New dotfiles** - Add to `DOTFILE_PRESETS` in `dotfiles.py`
-4. **Custom packages** - Use YAML config files
+4. **New agents** - Add to `AGENTS` dict in `agents.py`
+5. **Custom packages** - Use YAML config files
 
 ---
 

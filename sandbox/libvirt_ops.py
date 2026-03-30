@@ -66,10 +66,15 @@ def create_seed_iso(
             if pkg not in all_packages:
                 all_packages.append(pkg)
 
-    if agent_config and "packages" in agent_config:
-        for pkg in agent_config["packages"]:
-            if pkg not in all_packages:
-                all_packages.append(pkg)
+    agent_config = None
+    if agent:
+        from .agents import get_agent_config
+        agent_config = get_agent_config(agent)
+        console.print(f"[dim]Agent: {agent_config['name']}[/dim]")
+        if "packages" in agent_config:
+            for pkg in agent_config["packages"]:
+                if pkg not in all_packages:
+                    all_packages.append(pkg)
 
     packages_yaml = "\n".join(f"  - {pkg}" for pkg in all_packages)
 
@@ -106,12 +111,6 @@ packages:
 
     user_home = f"/home/{vm_user}"
     mise_url = f"https://mise.run/{shell}"
-
-    agent_config = None
-    if agent:
-        from .agents import get_agent_config
-        agent_config = get_agent_config(agent)
-        console.print(f"[dim]Agent: {agent_config['name']}[/dim]")
 
     runcmd_items = [
         "[ systemctl, enable, --now, sshd ]",
