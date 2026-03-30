@@ -5,7 +5,7 @@ Quick and isolated Rocky Linux 9 sandboxes for AI experiments, Agentic AI develo
 ## Features
 
 - **One-command VM creation** - Fully configured Rocky Linux 9 VMs with cloud-init
-- **SSH access** - Direct SSH to VMs (standard `ssh user@ip`)
+- **SSH access** - via sanbox connect command or  direct SSH to VMs (standard `ssh user@ip`)
 - **Lifecycle management** - Create, list, start, stop, delete VMs
 - **Data sharing** - Mount host directories via 9p/virtiofs or SSHFS
 - **Dotfiles support** - Apply your configs from git, local path, or presets
@@ -19,7 +19,20 @@ Quick and isolated Rocky Linux 9 sandboxes for AI experiments, Agentic AI develo
 
 ### One-Time Setup
 
+This tool is highly experimental and  has only been tested on Linux. On Windows it would need to be run on WSL, but has not been tested. 
+This tool uses pixi to manage the environments, you can install pixi as:
+
+```bash
+curl -fsSL https://pixi.sh/install.sh | sh
+```
+
+If your system doesn't have curl, you can use wget:
+
+```bash
+wget -qO- https://pixi.sh/install.sh | sh
+```
 Run the automated setup to install prerequisites, create SSH keys, and download Rocky Linux:
+This will create a SSH key if you do not have one, and will use the key to connect to the VMs. Password access is deactivated by default.
 
 ```bash
 # Run initial setup (guides you through each step)
@@ -75,6 +88,8 @@ Now you're ready to create sandboxes!
 
 ### Create Your First Sandbox
 
+NOTE: If you created the alias, you can skip the 'pixi run' part of the commands, and use simply the alias you created. (i.e instead of 'pixi run sandbox create --tui', simply run 'sandbox create --tui' )
+
 ```bash
 # Using TUI (interactive)
 pixi run sandbox create --tui
@@ -100,11 +115,17 @@ pixi run sandbox list
 # or
 sudo virsh domifaddr <vm-name>
 
-# 2. SSH directly (works from any machine)
+# 2. SSH directly 
 ssh <username>@<ip-address>
 
 # Example:
-ssh usersand@192.168.122.117
+ssh user@192.168.122.117
+```
+
+If you are using kitty, you may want to run once the following command to have a fully working terminal:
+
+```bash
+kitten ssh user@192.168.122.117
 ```
 
 **Recommendation:** Use `sandbox connect` for quick access from your host machine. Use standard `ssh` when you need more control, want to connect from IDEs, or are connecting from a different machine.
@@ -284,7 +305,7 @@ sudo dnf install vim git curl wget tmux htop tree jq
 
 ```bash
 # Install global versions of tools
-mise use -g node@20
+mise use -g node@24
 mise use -g python@3.12
 mise use -g go@1.21
 
@@ -309,9 +330,9 @@ mise uninstall node@18
 ```
 
 **Popular mise packages:**
-- `node@20`, `node@18`, `node@lts`
+- `node@24`, `node@22`, `node@lts`
 - `python@3.12`, `python@3.11`
-- `go@1.21`, `go@latest`
+- `go@1.26.1`, `go@latest`
 - `rust@latest`
 - `java@17`, `java@21`
 - `bun@latest`, `deno@latest`
