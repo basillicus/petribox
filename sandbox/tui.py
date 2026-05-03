@@ -119,18 +119,27 @@ def run_create_tui():
 
     # SSH key
     console.print("\n[dim]SSH key configuration:[/dim]")
+    
+    # Try to find a default SSH key
+    ssh_keys = []
+    # Check for sandbox-specific key first
+    sandbox_key = Path.home() / ".ssh" / "sandbox_id_ed25519.pub"
+    if sandbox_key.exists():
+        ssh_keys.append(sandbox_key)
+        
+    # Check other common keys
+    for key_name in ["id_ed25519.pub", "id_rsa.pub", "id_ecdsa.pub"]:
+        path = Path.home() / ".ssh" / key_name
+        if path.exists() and path not in ssh_keys:
+            ssh_keys.append(path)
+            
     default_ssh_key = None
-    for key_path in [
-        Path.home() / ".ssh" / "id_ed25519.pub",
-        Path.home() / ".ssh" / "id_rsa.pub",
-    ]:
-        if key_path.exists():
-            default_ssh_key = str(key_path)
-            console.print(f"[green]✓ Found:[/green] {key_path}")
-            break
-
-    if not default_ssh_key:
-        console.print("[yellow]⚠ No SSH key found in default locations[/yellow]")
+    if ssh_keys:
+        default_ssh_key = str(ssh_keys[0])
+        for key_path in ssh_keys:
+            console.print(f"  [green]✓ Found:[/green] {key_path}")
+    else:
+        console.print("  [yellow]⚠ No SSH key found in default locations[/yellow]")
 
     ssh_key = Prompt.ask(
         "SSH public key path",

@@ -60,15 +60,21 @@ This will:
 
 ```bash
 # Install required packages (Fedora/RHEL/Rocky)
-sudo dnf install virt-install cloud-image-utils libvirt-daemon-system libvirt-clients
+sudo dnf install virt-install cloud-image-utils libvirt-daemon-system libvirt-clients qemu-img
+
+# Install required packages (Arch Linux)
+sudo pacman -S virt-install cloud-image-utils libvirt qemu-desktop openssh
 
 # Install required packages (Debian/Ubuntu)
-sudo apt install virtinst qemu-utils libvirt-clients libvirt-daemon-system
+sudo apt install virtinst qemu-utils libvirt-clients libvirt-daemon-system cloud-image-utils
 
 # Start libvirt
 sudo systemctl enable --now libvirtd
 
-# Add user to  libvirt group
+# Note: On Arch Linux or if you prefer modular daemons:
+# sudo systemctl enable --now virtqemud.socket virtnetworkd.socket virtstoraged.socket
+
+# Add user to libvirt group
 sudo usermod -aG libvirt $USER
 newgrp libvirt
 ```
@@ -329,6 +335,24 @@ ping google.com
 ---
 
 ## Troubleshooting
+
+### "Host does not support any virtualization options"
+This means Hardware Virtualization (VT-x or AMD-V) is disabled.
+
+1.  **In BIOS/UEFI**: Enable "Intel Virtualization Technology" or "AMD-V" in your CPU configuration.
+2.  **In WSL2**: Create or edit `%USERPROFILE%\.wslconfig` in Windows:
+    ```ini
+    [wsl2]
+    nestedVirtualization=true
+    ```
+    Then restart WSL: `wsl --shutdown`.
+3.  **In QEMU/KVM (Nested)**: 
+    Check if enabled: `cat /sys/module/kvm_intel/parameters/nested` (should be `Y`).
+    To enable: 
+    ```bash
+    echo "options kvm-intel nested=1" | sudo tee /etc/modprobe.d/kvm.conf
+    sudo modprobe -r kvm_intel && sudo modprobe kvm_intel
+    ```
 
 ### VM won't boot
 ```bash

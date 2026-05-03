@@ -848,6 +848,7 @@ def cmd_initial_setup(args):
         "qemu-img": "qemu-img",
         "virsh": "libvirt-client",
         "ssh-keygen": "openssh-clients",
+        "cloud-localds": "cloud-image-utils",
     }
 
     missing_tools = []
@@ -865,6 +866,17 @@ def cmd_initial_setup(args):
         # Detect package manager
         if shutil.which("dnf"):
             console.print(f"  [dim]sudo dnf install {' '.join([pkg for _, pkg in missing_tools])}[/dim]")
+        elif shutil.which("pacman"):
+            # Map package names for pacman
+            pacman_map = {
+                "virt-install": "virt-install",
+                "qemu-img": "qemu",
+                "libvirt-client": "libvirt",
+                "ssh-keygen": "openssh",
+                "cloud-localds": "cloud-image-utils",
+            }
+            pacman_pkgs = [pacman_map.get(pkg, pkg) for _, pkg in missing_tools]
+            console.print(f"  [dim]sudo pacman -S {' '.join(pacman_pkgs)}[/dim]")
         elif shutil.which("apt"):
             # Map package names for apt
             apt_map = {
@@ -872,6 +884,7 @@ def cmd_initial_setup(args):
                 "qemu-img": "qemu-utils",
                 "libvirt-client": "libvirt-clients",
                 "ssh-keygen": "openssh-client",
+                "cloud-localds": "cloud-image-utils",
             }
             apt_pkgs = [apt_map.get(pkg, pkg) for _, pkg in missing_tools]
             console.print(f"  [dim]sudo apt install {' '.join(apt_pkgs)}[/dim]")
@@ -892,20 +905,34 @@ def cmd_initial_setup(args):
     console.print("[cyan]Step 2: Checking libvirt service[/cyan]")
     console.print()
 
+    libvirt_ok = False
     try:
-        result = subprocess.run(
+        # Check libvirtd (monolithic)
+        result_monolithic = subprocess.run(
             ["systemctl", "is-active", "libvirtd"],
             capture_output=True, text=True
         )
-        if result.stdout.strip() == "active":
-            console.print("  [green]✓[/green] libvirtd is running")
+        # Check virtqemud (modular)
+        result_modular = subprocess.run(
+            ["systemctl", "is-active", "virtqemud"],
+            capture_output=True, text=True
+        )
+        
+        if result_monolithic.stdout.strip() == "active":
+            console.print("  [green]✓[/green] libvirtd (monolithic) is running")
+            libvirt_ok = True
+        elif result_modular.stdout.strip() == "active":
+            console.print("  [green]✓[/green] virtqemud (modular) is running")
+            libvirt_ok = True
         else:
-            console.print("  [yellow]![/yellow] libvirtd is not running")
-            console.print("  [dim]Enable and start with:[/dim]")
+            console.print("  [yellow]![/yellow] libvirt service is not running")
+            console.print("  [dim]Enable and start with (monolithic - recommended):[/dim]")
             console.print("    [dim]sudo systemctl enable --now libvirtd[/dim]")
+            console.print("  [dim]Or if using modular daemons (common on Arch):[/dim]")
+            console.print("    [dim]sudo systemctl enable --now virtqemud.socket virtnetworkd.socket virtstoraged.socket[/dim]")
             all_ok = False
     except Exception as e:
-        console.print(f"  [red]✗[/red] Could not check libvirtd: {e}")
+        console.print(f"  [red]✗[/red] Could not check libvirt status: {e}")
         all_ok = False
 
     console.print()

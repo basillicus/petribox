@@ -18,7 +18,7 @@ LIBVIRT_URI = "qemu:///system"
 
 
 def check_prereqs():
-    """Check if required tools are installed"""
+    """Check if required tools are installed and libvirt is reachable"""
     required = {
         "virt-install": "virtinst package",
         "cloud-localds": "cloud-image-utils package",
@@ -34,6 +34,61 @@ def check_prereqs():
             )
         except subprocess.CalledProcessError:
             raise RuntimeError(f"{cmd} not found. Install {package}")
+
+    # Check for hardware virtualization support
+    try:
+        cpu_info = Path("/proc/cpuinfo").read_text()
+        if "vmx" not in cpu_info and "svm" not in cpu_info:
+            # Check if we're in a VM already
+            is_vm = subprocess.run(["systemd-detect-virt"], capture_output=True, text=True).stdout.strip() != "none"
+            
+            error_msg = "Hardware virtualization (VT-x/AMD-V) is not enabled on this host.\n"
+            if is_vm:
+                error_msg += "You appear to be running inside a VM. Please enable 'Nested Virtualization' in your hypervisor settings."
+            else:
+                error_msg += "Please enable 'Virtualization Technology' (VT-x or AMD-V) in your BIOS/UEFI settings."
+            
+            console.print(f"[yellow]Warning: {error_msg}[/yellow]")
+            console.print("[dim]Note: Without hardware acceleration, VMs will be extremely slow or fail to start.[/dim]\n")
+    except Exception:
+        pass
+
+    # Check libvirt connection
+    try:
+        # Use virsh to check connection - it will fail if service is down
+        # We don't use sudo here because we want to see if the current user can connect
+        # (either via libvirt group or it will prompt for password if configured)
+        subprocess.run(
+            ["virsh", "-c", LIBVIRT_URI, "uri"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except subprocess.CalledProcessError:
+        # If it fails without sudo, try to see if it's just a service issue
+        try:
+            # Check if libvirtd or virtqemud is even active
+            monolithic = subprocess.run(["systemctl", "is-active", "libvirtd"], capture_output=True, text=True).stdout.strip() == "active"
+            modular = subprocess.run(["systemctl", "is-active", "virtqemud"], capture_output=True, text=True).stdout.strip() == "active"
+            
+            if not monolithic and not modular:
+                raise RuntimeError(
+                    "Libvirt service is not running.\n"
+                    "Fix: sudo systemctl enable --now libvirtd"
+                )
+            else:
+                # Service is running, but we can't connect. Likely group permissions.
+                import getpass
+                user = getpass.getuser()
+                raise RuntimeError(
+                    f"Could not connect to libvirt. Service is running but user '{user}' may lack permissions.\n"
+                    f"Fix: sudo usermod -aG libvirt {user} (then log out and back in)"
+                )
+        except Exception as e:
+            if isinstance(e, RuntimeError):
+                raise
+            raise RuntimeError(f"Could not connect to libvirt at {LIBVIRT_URI}. Is the service running?")
+
 
 
 def create_seed_iso(
@@ -226,6 +281,12 @@ def create_vm(
     console.print(f"[dim]Creating {disk_size}GB disk...[/dim]")
     subprocess.run(
         ["sudo", "qemu-img", "create", "-f", "qcow2", "-F", "qcow2", "-b", effective_base_image, vm_disk],
+        check=True,
+        capture_output=True,
+    )
+    # Resize the disk to the requested size
+    subprocess.run(
+        ["sudo", "qemu-img", "resize", vm_disk, f"{disk_size}G"],
         check=True,
         capture_output=True,
     )

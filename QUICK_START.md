@@ -10,11 +10,17 @@ Get your first AI sandbox VM running in 5 minutes.
 # Fedora/RHEL/Rocky
 sudo dnf install virt-install cloud-image-utils libvirt-daemon-system libvirt-clients qemu-img
 
+# Arch Linux
+sudo pacman -S virt-install cloud-image-utils libvirt qemu-desktop openssh
+
 # Debian/Ubuntu
 sudo apt install virtinst qemu-utils libvirt-clients libvirt-daemon-system cloud-image-utils
 
 # Start libvirt
 sudo systemctl enable --now libvirtd
+
+# Note: On some systems (like Arch Linux), you might prefer modular daemons:
+# sudo systemctl enable --now virtqemud.socket virtnetworkd.socket virtstoraged.socket
 ```
 
 ## One-Time Setup
@@ -86,6 +92,9 @@ pixi run sandbox console my-vm     # Serial console
 5. **Disk freed**: `sandbox delete` removes VM and frees disk space
 
 ## Troubleshooting
+
+### "Host does not support any virtualization options"
+Enable **VT-x** or **AMD-V** in your BIOS/UEFI settings. If using WSL2, enable `nestedVirtualization=true` in your `.wslconfig`.
 
 ### VM won't boot
 ```bash
