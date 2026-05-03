@@ -1234,9 +1234,11 @@ def cmd_initial_setup(args):
         console.print()
 
         project_path = project_dir.resolve()
-        alias_cmd = f'alias sandbox="cd {project_path} && pixi run sandbox"'
+        manifest_path = project_path / "pixi.toml"
+        # Using --manifest-path allows pixi to run from anywhere without 'cd'
+        alias_cmd = f'alias petri="pixi run --manifest-path {manifest_path} sandbox"'
         
-        console.print("  Add this alias to your shell for convenient access:")
+        console.print("  Add this alias to your shell to run 'petri' from anywhere:")
         console.print(f"  [green]{alias_cmd}[/green]")
         console.print()
 

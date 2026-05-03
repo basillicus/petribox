@@ -52,7 +52,12 @@ This will:
 2. Verify libvirt service is running
 3. Create or reuse SSH keys for VM access
 4. Download and verify Rocky Linux image (checksum verified)
-5. Suggest a convenient shell alias
+5. **Set up a global `petri` alias** so you can manage sandboxes from any directory:
+   ```bash
+   alias petri="pixi run --manifest-path /path/to/repo/pixi.toml sandbox"
+   ```
+
+**Tip:** After setup, you can simply run `petri list` or `petri create --tui` from anywhere in your terminal.
 
 **Note:** You will be prompted for your sudo password when creating or managing sandboxes. This is required because libvirt needs system-level access.
 
