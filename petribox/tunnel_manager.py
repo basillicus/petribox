@@ -13,12 +13,12 @@ class TunnelManager:
     """Manage SSH port-forward tunnels with file-based tracking"""
 
     def __init__(self):
-        self.tunnel_dir = Path.home() / ".sandbox" / "tunnels"
+        self.tunnel_dir = Path.home() / ".petribox" / "tunnels"
         self.tunnel_dir.mkdir(parents=True, exist_ok=True)
 
-    def _get_tunnel_file(self, sandbox_name: str, port: int) -> Path:
+    def _get_tunnel_file(self, dish_name: str, port: int) -> Path:
         """Get the tunnel tracking file path"""
-        return self.tunnel_dir / f"{sandbox_name}_{port}.json"
+        return self.tunnel_dir / f"{dish_name}_{port}.json"
 
     def _is_process_running(self, pid: int) -> bool:
         """Check if a process is still running"""
@@ -29,12 +29,12 @@ class TunnelManager:
             return False
 
     def create_tunnel(
-        self, sandbox_name: str, vm_port: int, local_port: int, pid: int, vm_ip: str, user: str
+        self, dish_name: str, vm_port: int, local_port: int, pid: int, vm_ip: str, user: str
     ) -> None:
         """Create a tunnel tracking file"""
-        tunnel_file = self._get_tunnel_file(sandbox_name, vm_port)
+        tunnel_file = self._get_tunnel_file(dish_name, vm_port)
         data = {
-            "sandbox_name": sandbox_name,
+            "dish_name": dish_name,
             "vm_port": vm_port,
             "local_port": local_port,
             "pid": pid,
@@ -44,9 +44,9 @@ class TunnelManager:
         with open(tunnel_file, "w") as f:
             json.dump(data, f, indent=2)
 
-    def get_tunnel(self, sandbox_name: str, port: int) -> Optional[dict]:
+    def get_tunnel(self, dish_name: str, port: int) -> Optional[dict]:
         """Get tunnel info, returns None if tunnel doesn't exist or process is dead"""
-        tunnel_file = self._get_tunnel_file(sandbox_name, port)
+        tunnel_file = self._get_tunnel_file(dish_name, port)
         if not tunnel_file.exists():
             return None
 
@@ -77,9 +77,9 @@ class TunnelManager:
 
         return tunnels
 
-    def remove_tunnel(self, sandbox_name: str, port: int) -> bool:
+    def remove_tunnel(self, dish_name: str, port: int) -> bool:
         """Remove a tunnel tracking file"""
-        tunnel_file = self._get_tunnel_file(sandbox_name, port)
+        tunnel_file = self._get_tunnel_file(dish_name, port)
         if tunnel_file.exists():
             tunnel_file.unlink()
             return True
@@ -98,9 +98,9 @@ class TunnelManager:
 
         return cleaned
 
-    def kill_tunnel(self, sandbox_name: str, port: int) -> bool:
+    def kill_tunnel(self, dish_name: str, port: int) -> bool:
         """Kill a tunnel process and remove tracking file"""
-        tunnel = self.get_tunnel(sandbox_name, port)
+        tunnel = self.get_tunnel(dish_name, port)
         if not tunnel:
             return False
 
@@ -113,13 +113,13 @@ class TunnelManager:
                 # Process already dead, that's fine
                 pass
 
-        self.remove_tunnel(sandbox_name, port)
+        self.remove_tunnel(dish_name, port)
         return True
 
-    def kill_all_for_sandbox(self, sandbox_name: str) -> int:
+    def kill_all_for_dish(self, dish_name: str) -> int:
         """Kill all tunnels for a sandbox. Returns count of killed tunnels."""
         killed = 0
-        for tunnel_file in self.tunnel_dir.glob(f"{sandbox_name}_*.json"):
+        for tunnel_file in self.tunnel_dir.glob(f"{dish_name}_*.json"):
             with open(tunnel_file, "r") as f:
                 data = json.load(f)
 

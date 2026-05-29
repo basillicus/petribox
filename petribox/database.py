@@ -1,5 +1,5 @@
 """
-Sandbox Database - SQLite storage for VM tracking
+Petribox Database - SQLite storage for dish (VM) tracking
 """
 
 import sqlite3
@@ -11,9 +11,7 @@ from typing import Optional
 
 
 @dataclass
-class Sandbox:
-    """Represents a sandbox VM"""
-
+class Dish:
     id: Optional[int]
     name: str
     ram: int
@@ -32,19 +30,16 @@ class Sandbox:
     notes: Optional[str]
 
 
-class SandboxDB:
-    """SQLite database for tracking sandboxes"""
-
+class DishDB:
     def __init__(self, db_path: Optional[Path] = None):
         if db_path is None:
-            db_path = Path.home() / ".sandbox" / "sandboxes.db"
+            db_path = Path.home() / ".petribox" / "dishes.db"
             db_path.parent.mkdir(parents=True, exist_ok=True)
         self.db_path = db_path
         self._init_db()
 
     @contextmanager
     def connect(self):
-        """Context manager for database connections"""
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
         try:
@@ -54,16 +49,15 @@ class SandboxDB:
             conn.close()
 
     def _init_db(self):
-        """Initialize database schema"""
         with self.connect() as conn:
             conn.execute("""
-                CREATE TABLE IF NOT EXISTS sandboxes (
+                CREATE TABLE IF NOT EXISTS dishes (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     name TEXT UNIQUE NOT NULL,
                     ram INTEGER NOT NULL DEFAULT 4096,
                     cpus INTEGER NOT NULL DEFAULT 2,
                     disk INTEGER NOT NULL DEFAULT 20,
-                    user TEXT NOT NULL DEFAULT 'sandbox',
+                    user TEXT NOT NULL DEFAULT 'petri',
                     ssh_key TEXT NOT NULL,
                     network TEXT NOT NULL DEFAULT 'default',
                     image TEXT NOT NULL,
@@ -80,129 +74,123 @@ class SandboxDB:
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS mounts (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    sandbox_id INTEGER NOT NULL,
+                    dish_id INTEGER NOT NULL,
                     host_path TEXT NOT NULL,
                     vm_path TEXT NOT NULL,
                     mount_type TEXT NOT NULL DEFAULT '9p',
                     created_at TEXT NOT NULL,
-                    FOREIGN KEY (sandbox_id) REFERENCES sandboxes(id)
+                    FOREIGN KEY (dish_id) REFERENCES dishes(id)
                 )
             """)
 
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS packages (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    sandbox_id INTEGER NOT NULL,
+                    dish_id INTEGER NOT NULL,
                     name TEXT NOT NULL,
                     installed INTEGER NOT NULL DEFAULT 0,
-                    FOREIGN KEY (sandbox_id) REFERENCES sandboxes(id)
+                    FOREIGN KEY (dish_id) REFERENCES dishes(id)
                 )
             """)
 
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS port_forwards (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    sandbox_id INTEGER NOT NULL,
+                    dish_id INTEGER NOT NULL,
                     vm_port INTEGER NOT NULL,
                     local_port INTEGER NOT NULL,
                     pid INTEGER,
                     created_at TEXT NOT NULL,
-                    FOREIGN KEY (sandbox_id) REFERENCES sandboxes(id)
+                    FOREIGN KEY (dish_id) REFERENCES dishes(id)
                 )
             """)
 
-    def create_sandbox(self, sandbox: Sandbox) -> Sandbox:
-        """Create a new sandbox record"""
+    def create_dish(self, dish: Dish) -> Dish:
         with self.connect() as conn:
             cursor = conn.execute(
                 """
-                INSERT INTO sandboxes (
+                INSERT INTO dishes (
                     name, ram, cpus, disk, user, ssh_key, network, image,
                     status, created_at, updated_at, dotfiles_source,
                     config_file, preset, notes
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
-                    sandbox.name,
-                    sandbox.ram,
-                    sandbox.cpus,
-                    sandbox.disk,
-                    sandbox.user,
-                    sandbox.ssh_key,
-                    sandbox.network,
-                    sandbox.image,
-                    sandbox.status,
-                    sandbox.created_at,
-                    sandbox.updated_at,
-                    sandbox.dotfiles_source,
-                    sandbox.config_file,
-                    sandbox.preset,
-                    sandbox.notes,
+                    dish.name,
+                    dish.ram,
+                    dish.cpus,
+                    dish.disk,
+                    dish.user,
+                    dish.ssh_key,
+                    dish.network,
+                    dish.image,
+                    dish.status,
+                    dish.created_at,
+                    dish.updated_at,
+                    dish.dotfiles_source,
+                    dish.config_file,
+                    dish.preset,
+                    dish.notes,
                 ),
             )
-            sandbox.id = cursor.lastrowid
-            return sandbox
+            dish.id = cursor.lastrowid
+            return dish
 
-    def get_sandbox(self, name: str) -> Optional[Sandbox]:
-        """Get a sandbox by name (excludes destroyed)"""
+    def get_dish(self, name: str) -> Optional[Dish]:
         with self.connect() as conn:
             row = conn.execute(
-                "SELECT * FROM sandboxes WHERE name = ? AND status != 'destroyed'", (name,)
+                "SELECT * FROM dishes WHERE name = ? AND status != 'destroyed'", (name,)
             ).fetchone()
             if row:
-                return self._row_to_sandbox(row)
+                return self._row_to_dish(row)
             return None
 
-    def get_sandbox_any(self, name: str) -> Optional[Sandbox]:
-        """Get a sandbox by name (including destroyed)"""
+    def get_dish_any(self, name: str) -> Optional[Dish]:
         with self.connect() as conn:
             row = conn.execute(
-                "SELECT * FROM sandboxes WHERE name = ?", (name,)
+                "SELECT * FROM dishes WHERE name = ?", (name,)
             ).fetchone()
             if row:
-                return self._row_to_sandbox(row)
+                return self._row_to_dish(row)
             return None
 
-    def get_sandbox_by_id(self, sandbox_id: int) -> Optional[Sandbox]:
-        """Get a sandbox by ID"""
+    def get_dish_by_id(self, dish_id: int) -> Optional[Dish]:
         with self.connect() as conn:
             row = conn.execute(
-                "SELECT * FROM sandboxes WHERE id = ?", (sandbox_id,)
+                "SELECT * FROM dishes WHERE id = ?", (dish_id,)
             ).fetchone()
             if row:
-                return self._row_to_sandbox(row)
+                return self._row_to_dish(row)
             return None
 
-    def list_sandboxes(
+    def list_dishes(
         self, status: Optional[str] = None, include_destroyed: bool = False
-    ) -> list[Sandbox]:
-        """List sandboxes, optionally filtered by status"""
+    ) -> list[Dish]:
         with self.connect() as conn:
             if include_destroyed:
                 if status:
                     rows = conn.execute(
-                        "SELECT * FROM sandboxes WHERE status = ?", (status,)
+                        "SELECT * FROM dishes WHERE status = ?", (status,)
                     ).fetchall()
                 else:
-                    rows = conn.execute("SELECT * FROM sandboxes").fetchall()
+                    rows = conn.execute("SELECT * FROM dishes").fetchall()
             else:
                 if status:
                     rows = conn.execute(
-                        "SELECT * FROM sandboxes WHERE status = ? AND status != 'destroyed'",
+                        "SELECT * FROM dishes WHERE status = ? AND status != 'destroyed'",
                         (status,),
                     ).fetchall()
                 else:
                     rows = conn.execute(
-                        "SELECT * FROM sandboxes WHERE status != 'destroyed'"
+                        "SELECT * FROM dishes WHERE status != 'destroyed'"
                     ).fetchall()
-            return [self._row_to_sandbox(row) for row in rows]
+            return [self._row_to_dish(row) for row in rows]
 
     def update_status(self, name: str, status: str) -> bool:
-        """Update sandbox status"""
         with self.connect() as conn:
             cursor = conn.execute(
                 """
-                UPDATE sandboxes 
+                UPDATE dishes 
                 SET status = ?, updated_at = ?
                 WHERE name = ?
                 """,
@@ -210,12 +198,11 @@ class SandboxDB:
             )
             return cursor.rowcount > 0
 
-    def delete_sandbox(self, name: str) -> bool:
-        """Mark a sandbox as destroyed (soft delete)"""
+    def delete_dish(self, name: str) -> bool:
         with self.connect() as conn:
             cursor = conn.execute(
                 """
-                UPDATE sandboxes
+                UPDATE dishes
                 SET status = 'destroyed', updated_at = ?
                 WHERE name = ?
                 """,
@@ -223,74 +210,65 @@ class SandboxDB:
             )
             return cursor.rowcount > 0
 
-    def remove_sandbox(self, name: str) -> bool:
-        """Permanently delete a sandbox from database (hard delete)"""
+    def remove_dish(self, name: str) -> bool:
         with self.connect() as conn:
-            # First delete associated mounts and packages
-            conn.execute("DELETE FROM mounts WHERE sandbox_id = (SELECT id FROM sandboxes WHERE name = ?)", (name,))
-            conn.execute("DELETE FROM packages WHERE sandbox_id = (SELECT id FROM sandboxes WHERE name = ?)", (name,))
-            # Then delete the sandbox
-            cursor = conn.execute("DELETE FROM sandboxes WHERE name = ?", (name,))
+            conn.execute("DELETE FROM mounts WHERE dish_id = (SELECT id FROM dishes WHERE name = ?)", (name,))
+            conn.execute("DELETE FROM packages WHERE dish_id = (SELECT id FROM dishes WHERE name = ?)", (name,))
+            cursor = conn.execute("DELETE FROM dishes WHERE name = ?", (name,))
             return cursor.rowcount > 0
 
     def add_mount(
-        self, sandbox_id: int, host_path: str, vm_path: str, mount_type: str = "9p"
+        self, dish_id: int, host_path: str, vm_path: str, mount_type: str = "9p"
     ) -> int:
-        """Add a mount record"""
         with self.connect() as conn:
             cursor = conn.execute(
                 """
-                INSERT INTO mounts (sandbox_id, host_path, vm_path, mount_type, created_at)
+                INSERT INTO mounts (dish_id, host_path, vm_path, mount_type, created_at)
                 VALUES (?, ?, ?, ?, ?)
                 """,
-                (sandbox_id, host_path, vm_path, mount_type, datetime.now().isoformat()),
+                (dish_id, host_path, vm_path, mount_type, datetime.now().isoformat()),
             )
             return cursor.lastrowid
 
-    def get_mounts(self, sandbox_id: int) -> list[dict]:
-        """Get all mounts for a sandbox"""
+    def get_mounts(self, dish_id: int) -> list[dict]:
         with self.connect() as conn:
             rows = conn.execute(
-                "SELECT * FROM mounts WHERE sandbox_id = ?", (sandbox_id,)
+                "SELECT * FROM mounts WHERE dish_id = ?", (dish_id,)
             ).fetchall()
             return [dict(row) for row in rows]
 
-    def add_package(self, sandbox_id: int, package_name: str) -> int:
-        """Add a package record"""
+    def add_package(self, dish_id: int, package_name: str) -> int:
         with self.connect() as conn:
             cursor = conn.execute(
                 """
-                INSERT INTO packages (sandbox_id, name, installed)
+                INSERT INTO packages (dish_id, name, installed)
                 VALUES (?, ?, 0)
                 """,
-                (sandbox_id, package_name),
+                (dish_id, package_name),
             )
             return cursor.lastrowid
 
-    def get_packages(self, sandbox_id: int) -> list[dict]:
-        """Get all packages for a sandbox"""
+    def get_packages(self, dish_id: int) -> list[dict]:
         with self.connect() as conn:
             rows = conn.execute(
-                "SELECT * FROM packages WHERE sandbox_id = ?", (sandbox_id,)
+                "SELECT * FROM packages WHERE dish_id = ?", (dish_id,)
             ).fetchall()
             return [dict(row) for row in rows]
 
-    def mark_package_installed(self, sandbox_id: int, package_name: str) -> bool:
-        """Mark a package as installed"""
+    def mark_package_installed(self, dish_id: int, package_name: str) -> bool:
         with self.connect() as conn:
             cursor = conn.execute(
                 """
                 UPDATE packages 
                 SET installed = 1
-                WHERE sandbox_id = ? AND name = ?
+                WHERE dish_id = ? AND name = ?
                 """,
-                (sandbox_id, package_name),
+                (dish_id, package_name),
             )
             return cursor.rowcount > 0
 
-    def _row_to_sandbox(self, row: sqlite3.Row) -> Sandbox:
-        """Convert a database row to a Sandbox object"""
-        return Sandbox(
+    def _row_to_dish(self, row: sqlite3.Row) -> Dish:
+        return Dish(
             id=row["id"],
             name=row["name"],
             ram=row["ram"],

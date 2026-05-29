@@ -1,9 +1,3 @@
-"""
-Interactive TUI for Sandbox Creation
-
-Uses simple terminal prompts for interactive configuration.
-"""
-
 import sys
 from pathlib import Path
 from typing import Optional
@@ -17,7 +11,6 @@ from rich.progress import Progress, SpinnerColumn, TextColumn
 console = Console()
 
 
-# Preset configurations
 PRESETS = {
     "minimal": {
         "description": "Basic tools (vim, python3, git, curl)",
@@ -51,29 +44,25 @@ PRESETS = {
     },
 }
 
-# Dotfile presets
 DOTFILE_PRESETS = ["minimal", "dev", "ai-researcher"]
 
 
 def run_create_tui():
-    """Run interactive TUI for sandbox creation"""
     console.print()
     console.print(Panel.fit(
-        "[bold green]Sandbox Creator[/bold green]\n"
-        "[dim]Interactive VM configuration[/dim]",
+        "[bold green]Petribox - Dish Creator[/bold green]\n"
+        "[dim]Interactive VM configuration for isolated experiments[/dim]",
         border_style="green",
     ))
     console.print()
 
-    # Get sandbox name
     console.print("[cyan]Step 1: Basic Configuration[/cyan]\n")
     
     name = Prompt.ask(
-        "Sandbox name",
-        default="sandbox",
+        "Dish name",
+        default="my-dish",
     )
 
-    # Select preset
     console.print("\n[dim]Select a preset configuration:[/dim]")
     preset_table = Table(show_header=True, header_style="bold")
     preset_table.add_column("Preset", style="cyan")
@@ -100,7 +89,6 @@ def run_create_tui():
         default="dev",
     )
 
-    # Get resource configuration
     if preset_choice != "custom":
         preset = PRESETS[preset_choice]
         ram = IntPrompt.ask("RAM (MB)", default=preset["ram"])
@@ -111,13 +99,11 @@ def run_create_tui():
         cpus = IntPrompt.ask("CPUs", default=2)
         disk = IntPrompt.ask("Disk size (GB)", default=20)
 
-    # Username
     console.print("\n[cyan]Step 2: User Configuration[/cyan]\n")
     console.print("[dim]This username will be used for SSH login[/dim]")
-    user = Prompt.ask("Username", default="sandbox")
+    user = Prompt.ask("Username", default="petri")
     console.print(f"[green]✓ Username: {user}[/green]\n")
 
-    # SSH key
     console.print("\n[dim]SSH key configuration:[/dim]")
     default_ssh_key = None
     for key_path in [
@@ -137,7 +123,6 @@ def run_create_tui():
         default=default_ssh_key or "",
     )
 
-    # Shell selection
     console.print("\n[cyan]Step 3: Shell Configuration[/cyan]\n")
     console.print("[dim]Choose your preferred shell for mise activation[/dim]")
     shell = Prompt.ask(
@@ -147,7 +132,6 @@ def run_create_tui():
     )
     console.print(f"[green]✓ Shell: {shell}[/green]\n")
 
-    # Dotfiles
     console.print("\n[cyan]Step 4: Dotfiles Configuration[/cyan]\n")
     console.print("[dim]Configure your development environment:[/dim]\n")
 
@@ -172,9 +156,8 @@ def run_create_tui():
     elif dotfile_choice == "local":
         dotfiles_source = Prompt.ask("Local path")
 
-    # Data mounts
-    console.print("\n[cyan]Step 4: Data Mounting[/cyan]\n")
-    console.print("[dim]Share directories between host and sandbox:[/dim]\n")
+    console.print("\n[cyan]Step 5: Data Mounting[/cyan]\n")
+    console.print("[dim]Share directories between host and dish:[/dim]\n")
 
     mounts = []
     if Confirm.ask("Add shared directories?", default=False):
@@ -191,7 +174,6 @@ def run_create_tui():
             mounts.append(f"{host_path}:{vm_path}")
             console.print(f"[green]✓ Added:[/green] {host_path} -> {vm_path} ({mount_type})\n")
 
-    # Summary
     console.print("\n" + "=" * 50)
     console.print("[bold]Configuration Summary[/bold]\n")
     console.print(f"  [cyan]Name:[/cyan]     {name}")
@@ -207,34 +189,15 @@ def run_create_tui():
             console.print(f"    - {mount}")
     console.print()
 
-    if not Confirm.ask("Create sandbox with this configuration?", default=True):
+    if not Confirm.ask("Create dish with this configuration?", default=True):
         console.print("\n[yellow]Creation cancelled[/yellow]\n")
         return
 
-    # Build and execute command
-    console.print("\n[green]Creating sandbox...[/green]\n")
+    console.print("\n[green]Creating dish...[/green]\n")
 
-    cmd_parts = ["sandbox", "create", name]
-    cmd_parts.extend(["--ram", str(ram)])
-    cmd_parts.extend(["--cpus", str(cpus)])
-    cmd_parts.extend(["--disk", str(disk)])
-    cmd_parts.extend(["--user", user])
-
-    if ssh_key:
-        cmd_parts.extend(["--ssh-key", ssh_key])
-
-    if dotfiles_source:
-        cmd_parts.extend(["--dotfiles", dotfiles_source])
-
-    for mount in mounts:
-        cmd_parts.extend(["--mount", mount])
-
-    # Execute via subprocess to use the actual create command
     import subprocess
-    from .cli import main as cli_main
-    import sys
+    from .commands import cmd_create
 
-    # Parse and execute
     class Args:
         pass
 
@@ -258,12 +221,12 @@ def run_create_tui():
     args.tui = False
     args.template = None
     args.save_template = None
+    args.agent = None
 
-    from .commands import cmd_create
     cmd_create(args)
 
-    console.print("\n[green]✓ Sandbox creation complete![/green]\n")
-    console.print(f"[dim]Connect with: sandbox connect {name}[/dim]\n")
+    console.print("\n[green]✓ Dish creation complete![/green]\n")
+    console.print(f"[dim]Connect with: petribox connect {name}[/dim]\n")
 
     try:
         save_template = Prompt.ask(
@@ -291,6 +254,6 @@ def run_create_tui():
             with open(template_path, "w") as f:
                 yaml.dump(template, f, default_flow_style=False)
             console.print(f"[green]✓ Template saved: {template_path}[/green]")
-            console.print(f"[dim]Use with: sandbox create <new-name> --template {template_path}[/dim]")
+            console.print(f"[dim]Use with: petribox create <new-name> --config {template_path}[/dim]")
     except (EOFError, KeyboardInterrupt):
         pass

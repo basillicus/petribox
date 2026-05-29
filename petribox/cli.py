@@ -1,8 +1,4 @@
 #!/usr/bin/env python3
-"""
-Sandbox CLI - Main entry point
-"""
-
 import argparse
 import sys
 from pathlib import Path
@@ -31,8 +27,8 @@ from .tui import run_create_tui
 
 def main():
     parser = argparse.ArgumentParser(
-        prog="sandbox",
-        description="Manage isolated Rocky Linux sandboxes for AI experiments",
+        prog="petribox",
+        description="Manage isolated Rocky Linux dishes (VMs) for AI experiments",
     )
     parser.add_argument(
         "--version",
@@ -48,16 +44,15 @@ def main():
 
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
 
-    # Create command
     create_parser = subparsers.add_parser(
         "create",
-        help="Create a new sandbox VM",
-        description="Create a new sandbox virtual machine",
+        help="Create a new dish (VM)",
+        description="Create a new dish (virtual machine)",
     )
     create_parser.add_argument(
         "name",
         nargs="?",
-        help="Name of the sandbox (optional if using TUI)",
+        help="Name of the dish (optional if using TUI)",
     )
     create_parser.add_argument(
         "--tui",
@@ -84,8 +79,8 @@ def main():
     )
     create_parser.add_argument(
         "--user",
-        default="sandbox",
-        help="Username (default: sandbox)",
+        default="petri",
+        help="Username (default: petri)",
     )
     create_parser.add_argument(
         "--ssh-key",
@@ -150,11 +145,10 @@ def main():
     )
     create_parser.set_defaults(func=cmd_create)
 
-    # List command
     list_parser = subparsers.add_parser(
         "list",
-        help="List all sandboxes",
-        description="List all sandbox VMs (running and stopped)",
+        help="List all dishes",
+        description="List all dishes (VMs: running and stopped)",
     )
     list_parser.add_argument(
         "--all",
@@ -163,39 +157,36 @@ def main():
     )
     list_parser.set_defaults(func=cmd_list)
 
-    # Up command
     up_parser = subparsers.add_parser(
         "up",
-        help="Start a sandbox",
-        description="Start a stopped sandbox VM",
+        help="Start a dish",
+        description="Start a stopped dish (VM)",
     )
     up_parser.add_argument(
         "name",
-        help="Name of the sandbox to start",
+        help="Name of the dish to start",
     )
     up_parser.set_defaults(func=cmd_up)
 
-    # Down command
     down_parser = subparsers.add_parser(
         "down",
-        help="Stop a sandbox",
-        description="Stop a running sandbox VM",
+        help="Stop a dish",
+        description="Stop a running dish (VM)",
     )
     down_parser.add_argument(
         "name",
-        help="Name of the sandbox to stop",
+        help="Name of the dish to stop",
     )
     down_parser.set_defaults(func=cmd_down)
 
-    # Delete command
     delete_parser = subparsers.add_parser(
         "delete",
-        help="Delete a sandbox",
-        description="Delete a sandbox VM and its resources",
+        help="Delete a dish",
+        description="Delete a dish (VM) and its resources",
     )
     delete_parser.add_argument(
         "name",
-        help="Name of the sandbox to delete",
+        help="Name of the dish to delete",
     )
     delete_parser.add_argument(
         "--force",
@@ -205,19 +196,17 @@ def main():
     )
     delete_parser.set_defaults(func=cmd_delete)
 
-    # Status command
     status_parser = subparsers.add_parser(
         "status",
-        help="Show detailed sandbox status",
-        description="Show detailed status of a sandbox VM",
+        help="Show detailed dish status",
+        description="Show detailed status of a dish (VM)",
     )
     status_parser.add_argument(
         "name",
-        help="Name of the sandbox",
+        help="Name of the dish",
     )
     status_parser.set_defaults(func=cmd_status)
 
-    # Console command
     console_parser = subparsers.add_parser(
         "console",
         help="Connect to VM serial console",
@@ -225,19 +214,18 @@ def main():
     )
     console_parser.add_argument(
         "name",
-        help="Name of the sandbox",
+        help="Name of the dish",
     )
     console_parser.set_defaults(func=cmd_console)
 
-    # Connect command (SSH wrapper)
     connect_parser = subparsers.add_parser(
         "connect",
-        help="SSH into a sandbox (convenience wrapper)",
-        description="Connect to a sandbox via SSH (wrapper around standard ssh)",
+        help="SSH into a dish",
+        description="Connect to a dish via SSH",
     )
     connect_parser.add_argument(
         "name",
-        help="Name of the sandbox to connect to",
+        help="Name of the dish to connect to",
     )
     connect_parser.add_argument(
         "ssh_command",
@@ -246,15 +234,14 @@ def main():
     )
     connect_parser.set_defaults(func=cmd_ssh)
 
-    # Mount command
     mount_parser = subparsers.add_parser(
         "mount",
-        help="Mount host directory in sandbox",
-        description="Mount a host directory into a running sandbox",
+        help="Mount host directory in dish",
+        description="Mount a host directory into a running dish (VM)",
     )
     mount_parser.add_argument(
         "name",
-        help="Name of the sandbox",
+        help="Name of the dish",
     )
     mount_parser.add_argument(
         "host_path",
@@ -273,15 +260,14 @@ def main():
     )
     mount_parser.set_defaults(func=cmd_mount)
 
-    # Umount command
     umount_parser = subparsers.add_parser(
         "umount",
-        help="Unmount directory from sandbox",
-        description="Unmount a directory from a sandbox",
+        help="Unmount directory from dish",
+        description="Unmount a directory from a dish (VM)",
     )
     umount_parser.add_argument(
         "name",
-        help="Name of the sandbox",
+        help="Name of the dish",
     )
     umount_parser.add_argument(
         "vm_path",
@@ -289,11 +275,10 @@ def main():
     )
     umount_parser.set_defaults(func=cmd_umount)
 
-    # Config command
     config_parser = subparsers.add_parser(
         "config",
-        help="Manage sandbox configurations",
-        description="View or edit sandbox configurations",
+        help="Manage dish configurations",
+        description="View or edit dish configurations",
     )
     config_parser.add_argument(
         "action",
@@ -303,19 +288,18 @@ def main():
     config_parser.add_argument(
         "name",
         nargs="?",
-        help="Sandbox name (for show/edit)",
+        help="Dish name (for show/edit)",
     )
     config_parser.set_defaults(func=cmd_config)
 
-    # Port-forward command
     portforward_parser = subparsers.add_parser(
         "port-forward",
         help="Forward a VM port to localhost",
-        description="Forward a port from the sandbox VM to localhost",
+        description="Forward a port from the dish (VM) to localhost",
     )
     portforward_parser.add_argument(
         "name",
-        help="Name of the sandbox",
+        help="Name of the dish",
     )
     portforward_parser.add_argument(
         "port",
@@ -335,7 +319,6 @@ def main():
     )
     portforward_parser.set_defaults(func=cmd_port_forward)
 
-    # Port-forward list command
     portforward_list_parser = subparsers.add_parser(
         "port-forward-list",
         help="List active port-forward tunnels",
@@ -343,15 +326,14 @@ def main():
     )
     portforward_list_parser.set_defaults(func=cmd_port_forward_list)
 
-    # Port-forward stop command
     portforward_stop_parser = subparsers.add_parser(
         "port-forward-stop",
         help="Stop a port-forward tunnel",
-        description="Stop a port-forward tunnel by sandbox name and port",
+        description="Stop a port-forward tunnel by dish name and port",
     )
     portforward_stop_parser.add_argument(
         "name",
-        help="Name of the sandbox",
+        help="Name of the dish",
     )
     portforward_stop_parser.add_argument(
         "port",
@@ -360,7 +342,6 @@ def main():
     )
     portforward_stop_parser.set_defaults(func=cmd_port_forward_stop)
 
-    # Port-forward clean command
     portforward_clean_parser = subparsers.add_parser(
         "port-forward-clean",
         help="Clean up stale port-forward tunnels",
@@ -368,10 +349,9 @@ def main():
     )
     portforward_clean_parser.set_defaults(func=cmd_port_forward_clean)
 
-    # Initial-setup command
     setup_parser = subparsers.add_parser(
         "initial-setup",
-        help="Set up sandbox prerequisites (libvirt, SSH key, Rocky image)",
+        help="Set up petribox prerequisites",
         description="Automated initial setup: configures libvirt, creates SSH key, and downloads Rocky Linux image",
     )
     setup_parser.add_argument(
@@ -388,12 +368,12 @@ def main():
     setup_parser.add_argument(
         "--ssh-key-path",
         type=Path,
-        help="Path for sandbox SSH key (default: ~/.ssh/sandbox_id_ed25519)",
+        help="Path for petribox SSH key (default: ~/.ssh/petribox_id_ed25519)",
     )
     setup_parser.add_argument(
         "--no-alias",
         action="store_true",
-        help="Don't suggest adding the sandbox alias to shell config",
+        help="Don't suggest adding the petri alias to shell config",
     )
     setup_parser.add_argument(
         "--auto",
@@ -405,12 +385,12 @@ def main():
 
     install_parser = subparsers.add_parser(
         "install",
-        help="Install software into a sandbox",
-        description="Install packages or agents into an existing sandbox VM",
+        help="Install software into a dish",
+        description="Install packages or agents into an existing dish (VM)",
     )
     install_parser.add_argument(
         "name",
-        help="Name of the sandbox",
+        help="Name of the dish",
     )
     install_parser.add_argument(
         "--agent",
@@ -434,7 +414,6 @@ def main():
         parser.print_help()
         sys.exit(1)
 
-    # Handle TUI for create
     if args.command == "create" and args.tui:
         run_create_tui()
         sys.exit(0)

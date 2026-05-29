@@ -73,8 +73,8 @@ bind C-s split-window -v
 bind C-v split-window -h
 """,
             ".gitconfig": """[user]
-    name = Sandbox User
-    email = sandbox@local
+    name = Petri User
+    email = petri@dish
 [core]
     editor = vim
 [init]

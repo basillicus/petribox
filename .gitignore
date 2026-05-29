@@ -20,6 +20,10 @@ NOTEs
 .trash/
 .qwen/
 
+# Petribox runtime state
+.petribox/
+.sandbox/
+
 # Logs
 *.log
 
@@ -35,4 +39,9 @@ NOTEs
 Thumbs.db
 
 # Python
-*__pycache__*
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.pytest_cache/

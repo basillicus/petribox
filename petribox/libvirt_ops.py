@@ -49,13 +49,13 @@ def create_seed_iso(
     import os
     import uuid
     
-    sandbox_tmp = Path.home() / ".sandbox" / "tmp"
-    sandbox_tmp.mkdir(parents=True, exist_ok=True)
+    petribox_tmp = Path.home() / ".petribox" / "tmp"
+    petribox_tmp.mkdir(parents=True, exist_ok=True)
     
-    seed_iso = sandbox_tmp / f"{vm_name}-seed.iso"
-    user_data_file = sandbox_tmp / f"{vm_name}-user-data.yml"
-    meta_data_file = sandbox_tmp / f"{vm_name}-meta-data.yml"
-    network_data_file = sandbox_tmp / f"{vm_name}-network-config.yml"
+    seed_iso = petribox_tmp / f"{vm_name}-seed.iso"
+    user_data_file = petribox_tmp / f"{vm_name}-user-data.yml"
+    meta_data_file = petribox_tmp / f"{vm_name}-meta-data.yml"
+    network_data_file = petribox_tmp / f"{vm_name}-network-config.yml"
 
     default_packages = ["vim", "python3", "git", "curl", "wget", "tmux"]
 
@@ -84,7 +84,7 @@ def create_seed_iso(
 hostname: {vm_name}
 users:
   - name: {vm_user}
-    gecos: "Sandbox User"
+    gecos: "Petri User"
     sudo: ALL=(ALL) NOPASSWD:ALL
     groups: wheel,sudo
     ssh_authorized_keys:

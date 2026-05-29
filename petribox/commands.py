@@ -11,7 +11,7 @@ from typing import Optional
 from rich.console import Console
 from rich.table import Table
 
-from .database import Sandbox, SandboxDB
+from .database import Dish, DishDB
 from .libvirt_ops import (
     check_prereqs,
     create_seed_iso,
@@ -88,7 +88,7 @@ def cmd_create(args):
 
     ssh_key = ssh_key_path.read_text().strip()
 
-    console.print(f"[green]=== Creating Sandbox: {name} ===[/green]")
+    console.print(f"[green]=== Creating Dish: {name} ===[/green]")
 
     # Check prerequisites
     check_prereqs()
@@ -109,13 +109,13 @@ def cmd_create(args):
         console.print(f"[dim]Applied preset: {args.preset}[/dim]")
 
     # Create database record
-    db = SandboxDB()
-    existing = db.get_sandbox(name)
+    db = DishDB()
+    existing = db.get_dish(name)
     if existing:
         console.print(f"[red]Error: Sandbox '{name}' already exists[/red]")
         sys.exit(1)
 
-    sandbox = Sandbox(
+    dish = Dish(
         id=None,
         name=name,
         ram=args.ram,
@@ -134,7 +134,7 @@ def cmd_create(args):
         notes=None,
     )
 
-    sandbox = db.create_sandbox(sandbox)
+    dish = db.create_dish(sandbox)
     console.print(f"[dim]Database record created (ID: {sandbox.id})[/dim]")
 
     # Create seed ISO with cloud-init
@@ -211,12 +211,12 @@ def cmd_create(args):
 
 def cmd_list(args):
     """List all sandboxes"""
-    db = SandboxDB()
+    db = DishDB()
 
     if args.all:
-        sandboxes = db.list_sandboxes(include_destroyed=True)
+        sandboxes = db.list_dishes(include_destroyed=True)
     else:
-        sandboxes = db.list_sandboxes()
+        sandboxes = db.list_dishes()
 
     if not sandboxes:
         console.print("[yellow]No sandboxes found[/yellow]")
@@ -261,8 +261,8 @@ def cmd_list(args):
 
 def cmd_up(args):
     """Start a sandbox"""
-    db = SandboxDB()
-    sandbox = db.get_sandbox(args.name)
+    db = DishDB()
+    dish = db.get_dish(args.name)
 
     if not sandbox:
         console.print(f"[red]Error: Sandbox '{args.name}' not found[/red]")
@@ -293,8 +293,8 @@ def cmd_up(args):
 
 def cmd_down(args):
     """Stop a sandbox"""
-    db = SandboxDB()
-    sandbox = db.get_sandbox(args.name)
+    db = DishDB()
+    dish = db.get_dish(args.name)
 
     if not sandbox:
         console.print(f"[red]Error: Sandbox '{args.name}' not found[/red]")
@@ -317,8 +317,8 @@ def cmd_down(args):
 
 def cmd_delete(args):
     """Delete a sandbox"""
-    db = SandboxDB()
-    sandbox = db.get_sandbox(args.name)
+    db = DishDB()
+    dish = db.get_dish(args.name)
 
     if not sandbox:
         console.print(f"[red]Error: Sandbox '{args.name}' not found[/red]")
@@ -351,16 +351,16 @@ def cmd_delete(args):
         pass  # VM might not exist in libvirt
 
     # Clean up seed ISO if it exists
-    seed_iso = Path.home() / ".sandbox" / "tmp" / f"{args.name}-seed.iso"
+    seed_iso = Path.home() / ".petribox" / "tmp" / f"{args.name}-seed.iso"
     if seed_iso.exists():
         seed_iso.unlink()
 
     # Remove from database (hard delete - allows reusing name)
-    db.remove_sandbox(args.name)
+    db.remove_dish(args.name)
 
     # Kill any active port-forward tunnels
     tunnel_mgr = TunnelManager()
-    killed = tunnel_mgr.kill_all_for_sandbox(args.name)
+    killed = tunnel_mgr.kill_all_for_dish(args.name)
     if killed > 0:
         console.print(f"[dim]Stopped {killed} port-forward tunnel(s)[/dim]")
 
@@ -369,8 +369,8 @@ def cmd_delete(args):
 
 def cmd_status(args):
     """Show detailed sandbox status"""
-    db = SandboxDB()
-    sandbox = db.get_sandbox(args.name)
+    db = DishDB()
+    dish = db.get_dish(args.name)
 
     if not sandbox:
         console.print(f"[red]Error: Sandbox '{args.name}' not found[/red]")
@@ -416,8 +416,8 @@ def cmd_status(args):
 
 def cmd_console(args):
     """Connect to VM serial console"""
-    db = SandboxDB()
-    sandbox = db.get_sandbox(args.name)
+    db = DishDB()
+    dish = db.get_dish(args.name)
 
     if not sandbox:
         console.print(f"[red]Error: Sandbox '{args.name}' not found[/red]")
@@ -438,8 +438,8 @@ def cmd_console(args):
 
 def cmd_ssh(args):
     """SSH into a sandbox (connect command)"""
-    db = SandboxDB()
-    sandbox = db.get_sandbox(args.name)
+    db = DishDB()
+    dish = db.get_dish(args.name)
 
     if not sandbox:
         console.print(f"[red]Error: Sandbox '{args.name}' not found[/red]")
@@ -484,8 +484,8 @@ def cmd_ssh(args):
 
 def cmd_mount(args):
     """Mount host directory in sandbox"""
-    db = SandboxDB()
-    sandbox = db.get_sandbox(args.name)
+    db = DishDB()
+    dish = db.get_dish(args.name)
 
     if not sandbox:
         console.print(f"[red]Error: Sandbox '{args.name}' not found[/red]")
@@ -527,8 +527,8 @@ def cmd_mount(args):
 
 def cmd_umount(args):
     """Unmount directory from sandbox"""
-    db = SandboxDB()
-    sandbox = db.get_sandbox(args.name)
+    db = DishDB()
+    dish = db.get_dish(args.name)
 
     if not sandbox:
         console.print(f"[red]Error: Sandbox '{args.name}' not found[/red]")
@@ -554,7 +554,7 @@ def cmd_umount(args):
 
 def cmd_config(args):
     """Manage sandbox configurations"""
-    db = SandboxDB()
+    db = DishDB()
 
     if args.action == "list":
         # List available presets
@@ -569,7 +569,7 @@ def cmd_config(args):
             console.print("[red]Error: Sandbox name required[/red]")
             sys.exit(1)
 
-        sandbox = db.get_sandbox(args.name)
+        dish = db.get_dish(args.name)
         if not sandbox:
             console.print(f"[red]Error: Sandbox '{args.name}' not found[/red]")
             sys.exit(1)
@@ -696,7 +696,7 @@ def cmd_port_forward_list(args):
 
     for tunnel in tunnels:
         table.add_row(
-            tunnel["sandbox_name"],
+            tunnel["petribox_name"],
             str(tunnel["vm_port"]),
             str(tunnel["local_port"]),
             tunnel["vm_ip"],
@@ -708,8 +708,8 @@ def cmd_port_forward_list(args):
 
 def cmd_port_forward(args):
     """Forward a VM port to localhost"""
-    db = SandboxDB()
-    sandbox = db.get_sandbox(args.name)
+    db = DishDB()
+    dish = db.get_dish(args.name)
 
     if not sandbox:
         console.print(f"[red]Error: Sandbox '{args.name}' not found[/red]")
@@ -811,7 +811,7 @@ def cmd_port_forward_clean(args):
 
     console.print(f"[yellow]Found {len(tunnels)} stale tunnel(s)[/yellow]")
     for tunnel in tunnels:
-        console.print(f"  {tunnel['sandbox_name']}:{tunnel['vm_port']} -> localhost:{tunnel['local_port']} (PID: {tunnel['pid']})")
+        console.print(f"  {tunnel['petribox_name']}:{tunnel['vm_port']} -> localhost:{tunnel['local_port']} (PID: {tunnel['pid']})")
 
     cleaned = tunnel_mgr.clean_stale()
     console.print(f"[green]Cleaned up {cleaned} stale tunnel record(s)[/green]")
@@ -938,14 +938,14 @@ def cmd_initial_setup(args):
     ssh_dir.mkdir(exist_ok=True)
 
     # Default key path
-    default_key_path = args.ssh_key_path or (ssh_dir / "sandbox_id_ed25519")
+    default_key_path = args.ssh_key_path or (ssh_dir / "petribox_id_ed25519")
 
     # Check for existing keys
     existing_keys = []
     for key_ext in ["_ed25519.pub", "_rsa.pub", "_ecdsa.pub"]:
         for key in ssh_dir.glob(f"*{key_ext}"):
             # Skip the sandbox key itself when looking for alternatives
-            if not key.name.startswith("sandbox_"):
+            if not key.name.startswith("petribox_"):
                 existing_keys.append(key)
 
     ssh_key_created = False
@@ -1031,7 +1031,7 @@ def cmd_initial_setup(args):
     elif default_key_path.exists():
         # Sandbox key already exists
         console.print(f"  [green]✓[/green] Sandbox SSH key already exists: {default_key_path}")
-        console.print("  [dim]Remove it to create a new one: rm ~/.ssh/sandbox_id_ed25519*[/dim]")
+        console.print("  [dim]Remove it to create a new one: rm ~/.ssh/petribox_id_ed25519*[/dim]")
         ssh_key_to_use = default_key_path
     elif not auto:
         # Create new sandbox key
@@ -1053,7 +1053,7 @@ def cmd_initial_setup(args):
                 "ssh-keygen",
                 "-t", "ed25519",
                 "-f", str(default_key_path),
-                "-C", "sandbox@vmisos",
+                "-C", "petribox@petribox",
             ]
 
             if use_passphrase:
@@ -1073,7 +1073,7 @@ def cmd_initial_setup(args):
             ssh_key_to_use = default_key_path
         except subprocess.CalledProcessError as e:
             console.print(f"  [red]✗[/red] Failed to create SSH key: {e}")
-            console.print("  [dim]Create manually: ssh-keygen -t ed25519 -f ~/.ssh/sandbox_id_ed25519[/dim]")
+            console.print("  [dim]Create manually: ssh-keygen -t ed25519 -f ~/.ssh/petribox_id_ed25519[/dim]")
             all_ok = False
     else:
         # Auto mode and no key exists - create without asking
@@ -1084,7 +1084,7 @@ def cmd_initial_setup(args):
                 "-t", "ed25519",
                 "-f", str(default_key_path),
                 "-N", "",
-                "-C", "sandbox@vmisos",
+                "-C", "petribox@petribox",
             ]
             subprocess.run(keygen_cmd, check=True, capture_output=True)
             console.print(f"  [green]✓[/green] SSH key created: {default_key_path}")
@@ -1276,8 +1276,8 @@ def cmd_initial_setup(args):
 
 def cmd_install(args):
     """Install software into an existing sandbox"""
-    db = SandboxDB()
-    sandbox = db.get_sandbox(args.name)
+    db = DishDB()
+    dish = db.get_dish(args.name)
 
     if not sandbox:
         console.print(f"[red]Error: Sandbox '{args.name}' not found[/red]")
