@@ -8,12 +8,14 @@ variant runs it once on first boot to install packages, mise, and any agent.
 
 from __future__ import annotations
 
+import shlex
 from typing import Optional
 
 import yaml
 
-# Always present, regardless of preset/config.
-DEFAULT_PACKAGES = ["vim", "python3", "git", "curl", "wget", "tmux"]
+# Always present, regardless of preset/config. The Rocky cloud image is minimal:
+# tar/gzip are absent and the mise installer needs them to unpack its tarball.
+DEFAULT_PACKAGES = ["vim", "python3", "git", "curl", "wget", "tmux", "tar", "gzip"]
 # Build dependencies mise needs to compile language runtimes on Rocky.
 MISE_BUILD_DEPS = ["libatomic", "openssl-devel", "bzip2-devel", "libffi-devel"]
 
@@ -98,9 +100,18 @@ def build_user_data(
         "dnf install -y htop || true"
     )
 
-    # mise (version manager) + ownership fixup.
-    runcmd.append(f"export HOME={home} && curl -sSfL https://mise.run/{shell} | sh")
-    runcmd.append(f"chown -R {user}:{user} {home}/.local")
+    # runcmd runs as root; run user-facing work as the dish user so files in the
+    # user's home are owned by them (not root).
+    def as_user(command: str) -> str:
+        return f"su - {user} -c {shlex.quote(command)}"
+
+    # mise (version manager): install, activate in the login shell, set tools.
+    rc_file = ".zshrc" if shell == "zsh" else ".bashrc"
+    runcmd.append(as_user("curl -fsSL https://mise.run | sh"))
+    runcmd.append(as_user(
+        f'grep -q "mise activate" ~/{rc_file} 2>/dev/null || '
+        f'echo \'eval "$(~/.local/bin/mise activate {shell})"\' >> ~/{rc_file}'
+    ))
 
     mise_packages = list(config.get("mise_packages", []))
     if agent_config:
@@ -108,21 +119,18 @@ def build_user_data(
             if pkg not in mise_packages:
                 mise_packages.append(pkg)
     for pkg in mise_packages:
-        runcmd.append(f"export HOME={home} && {home}/.local/bin/mise use -g {pkg}")
+        runcmd.append(as_user(f"~/.local/bin/mise use -g {pkg}"))
 
     pip_packages = config.get("pip_packages", [])
     if pip_packages:
         runcmd.append("pip3 install --break-system-packages " + " ".join(pip_packages))
 
     if agent_config and agent_config.get("install_script"):
-        runcmd.append(f"export HOME={home} && {agent_config['install_script']}")
+        runcmd.append(as_user(agent_config["install_script"]))
 
     environment = config.get("environment", {})
-    if environment:
-        for key, value in environment.items():
-            runcmd.append(
-                f'echo \'export {key}="{value}"\' >> {home}/.bashrc'
-            )
+    for key, value in environment.items():
+        runcmd.append(as_user(f'echo \'export {key}="{value}"\' >> ~/{rc_file}'))
 
     for cmd in config.get("runcmd", []):
         runcmd.append(cmd if isinstance(cmd, str) else " ".join(cmd))

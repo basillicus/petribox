@@ -55,11 +55,22 @@ def test_agent_install_script_runs():
     assert "mise use -g node@24" in runcmd
 
 
-def test_zsh_shell_sets_zsh_and_mise_url():
+def test_zsh_shell_activates_via_zshrc():
     text = cloudinit.build_user_data(hostname="x", user="petri", ssh_key="k", shell="zsh")
     doc = yaml.safe_load(text)
+    runcmd = " ".join(doc["runcmd"])
     assert doc["users"][0]["shell"] == "/bin/zsh"
-    assert "https://mise.run/zsh" in " ".join(doc["runcmd"])
+    assert "https://mise.run" in runcmd
+    assert "mise activate zsh" in runcmd and ".zshrc" in runcmd
+
+
+def test_mise_runs_as_dish_user_not_root():
+    doc = _doc(hostname="x", user="petri", ssh_key="k",
+               config={"mise_packages": ["node@24"]})
+    runcmd = " ".join(doc["runcmd"])
+    # mise work is wrapped in `su - <user>` so files aren't root-owned
+    assert "su - petri -c" in runcmd
+    assert "export HOME=" not in runcmd  # old root+HOME approach is gone
 
 
 def test_environment_vars_appended():
