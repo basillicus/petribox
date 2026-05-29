@@ -1,100 +1,78 @@
-# Quick Start Guide
+# Quick Start
 
-Get your first AI sandbox VM running in 5 minutes.
+Get your first AI-agent dish running in a couple of minutes.
 
-> **Platform:** Tested on Linux only. Windows users may need WSL2 with libvirt. MacOS has not tested.
+> **Platform:** Linux with [Incus](https://github.com/lxc/incus). No per-command sudo.
 
-## Prerequisites
+## 1. Install Incus
 
 ```bash
-# Fedora/RHEL/Rocky
-sudo dnf install virt-install cloud-image-utils libvirt-daemon-system libvirt-clients qemu-img
-
 # Debian/Ubuntu
-sudo apt install virtinst qemu-utils libvirt-clients libvirt-daemon-system cloud-image-utils
+sudo apt install -y incus
+# Fedora
+sudo dnf install -y incus
 
-# Start libvirt
-sudo systemctl enable --now libvirtd
+# Join the group (full management) and re-login for it to take effect
+sudo usermod -aG incus-admin $USER   # or 'incus' on some distros
 ```
 
-## One-Time Setup
+## 2. One-time setup
 
 ```bash
-# Install pixi if you haven't
+# Install pixi if needed
 curl -fsSL https://pixi.sh/install.sh | sh
 
-# Run automated setup
-pixi run sandbox initial-setup
+# Initialise Incus + verify prerequisites
+pixi run petribox initial-setup
 ```
 
-This will:
-1. Check for required tools
-2. Create SSH keys (or use existing)
-3. Download Rocky Linux 9 image (~0.62GB)
-4. Set up the libvirt network
+This runs `incus admin init --minimal` (storage pool + `incusbr0` network),
+checks your group membership, and verifies the image remote.
 
-## Create Your First Sandbox
+## 3. Create a dish
 
 ```bash
-# Interactive mode (recommended for first time)
-pixi run sandbox create --tui
+# Interactive
+pixi run petribox create --tui
 
-# Or with a preset
-pixi run sandbox create ai-lab --preset ai-researcher
-
-# With custom resources
-pixi run sandbox create my-vm --preset dev --ram 8192 --cpus 4
+# Or directly
+pixi run petribox create lab --preset dev               # VM
+pixi run petribox create fast --container --preset minimal   # container
 ```
 
-## Connect to Your Sandbox
+First boot runs cloud-init (1–3 min); later boots take seconds.
+
+## 4. Use it
 
 ```bash
-# Using the connect wrapper (auto-discovers IP)
-pixi run sandbox connect my-vm
-
-# Or with standard SSH
-pixi run sandbox list  # Get IP
-ssh sandbox@192.168.122.xxx
+pixi run petribox connect lab          # shell via incus exec (no SSH needed)
+pixi run petribox list                 # all dishes
+pixi run petribox status lab
+pixi run petribox mount lab ~/data /data
+pixi run petribox port-forward lab 8888
+pixi run petribox down lab             # stop when idle
+pixi run petribox delete lab           # remove
 ```
 
-## Common Commands
+## 5. Carry it anywhere
 
 ```bash
-pixi run sandbox list              # List all VMs
-pixi run sandbox status my-vm      # Show details
-pixi run sandbox up my-vm          # Start VM
-pixi run sandbox down my-vm        # Stop VM
-pixi run sandbox delete my-vm      # Delete VM
-pixi run sandbox console my-vm     # Serial console
+pixi run petribox down lab
+pixi run petribox export lab -o lab.tar.gz   # move this file to another host
+pixi run petribox import lab.tar.gz
 ```
 
 ## Presets
 
-| Preset | RAM | CPUs | Use Case |
-|--------|-----|------|----------|
-| `minimal` | 2GB | 1 | Basic testing |
-| `dev` | 4GB | 2 | General development |
-| `ai-researcher` | 8GB | 4 | ML/AI with Jupyter |
-| `agentic` | 8GB | 4 | Agentic AI with Docker |
+| Preset | RAM | CPUs | Use case |
+|---|---|---|---|
+| `minimal` | 2 GB | 1 | Basic testing |
+| `dev` | 4 GB | 2 | General development (node@24) |
+| `ai-researcher` | 8 GB | 4 | ML/AI with Jupyter |
+| `agentic` | 8 GB | 4 | Agentic AI (LangChain, Docker) |
 
 ## Tips
 
-1. **First boot**: Takes 2-3 minutes (cloud-init)
-2. **Subsequent boots**: ~15 seconds
-3. **SSH only**: No password by default, uses your SSH key
-4. **Stop VMs**: Use `sandbox down` when not in use (saves CPU/RAM)
-5. **Disk freed**: `sandbox delete` removes VM and frees disk space
-
-## Troubleshooting
-
-### VM won't boot
-```bash
-pixi run sandbox console my-vm  # Check console output
-```
-
-### Can't connect via SSH or packages are not installed
-Wait 2-3 minutes for cloud-init to complete on first boot.
-
----
-
-For full documentation, see [README.md](README.md).
+- **No SSH required** — `connect` uses `incus exec`. Pass `--ssh-key` only if you want SSH too.
+- **Containers** boot in seconds; **VMs** give full isolation and the cleanest cloud export.
+- Full reference: [README.md](README.md). Internals: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).

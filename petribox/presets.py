@@ -51,8 +51,9 @@ _PACKAGE_KEYS = ("packages", "mise_packages", "pip_packages", "runcmd", "environ
 
 
 def get_preset(name: str) -> dict:
-    """Return a copy of a preset, or {} if unknown."""
-    return dict(PRESETS.get(name, {}))
+    """Return a copy of a preset (list values copied too), or {} if unknown."""
+    preset = PRESETS.get(name, {})
+    return {k: (list(v) if isinstance(v, list) else v) for k, v in preset.items()}
 
 
 def package_config(name: str) -> dict:
