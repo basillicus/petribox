@@ -21,7 +21,7 @@ def test_key_only_locks_password():
 
 def test_password_uses_chpasswd_text_not_plaintext_field():
     doc = _doc(hostname="x", user="petri", ssh_key="k", password="hunter2")
-    # The historical bug wrote `passwd:` (plaintext) under the user. Ensure not.
+    # A password must go through chpasswd, never as a plaintext `passwd:` field.
     assert "passwd" not in doc["users"][0]
     assert doc["users"][0]["lock_passwd"] is False
     assert doc["ssh_pwauth"] is True

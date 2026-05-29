@@ -1,13 +1,12 @@
 """
 Incus backend - typed wrapper over the `incus` CLI.
 
-Replaces the old libvirt/ssh/tunnel/mount modules. Every function shells out to
-`incus` and raises IncusError (carrying stderr) on failure, so callers get a
-useful message instead of a bare CalledProcessError.
+Every function shells out to `incus` and raises IncusError (carrying stderr) on
+failure, so callers get a useful message.
 
 Design notes:
-- We use `incus init` + `incus start` (not `launch`) for create, so config and
-  devices can be applied before first boot (cloud-init runs once on first boot).
+- Create uses `incus init` + `incus start` so config and devices can be applied
+  before first boot (cloud-init runs once on first boot).
 - cloud-init.user-data can be multi-KB YAML; we pass it as a single argv element
   (no shell), so no escaping is needed and ARG_MAX is not a concern in practice.
 - The default image is the *cloud* variant, which ships cloud-init wired to the

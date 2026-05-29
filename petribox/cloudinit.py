@@ -1,13 +1,9 @@
 """
 cloud-init user-data generation.
 
-Ported from the old libvirt_ops.create_seed_iso, but:
-- builds a dict and serialises with PyYAML (no fragile f-string escaping),
-- fixes the plaintext-password bug (uses chpasswd with type: text),
-- drops fuse-sshfs (data sharing is now native Incus virtiofs disk devices).
-
-The result is delivered to Incus via the `cloud-init.user-data` config key; the
-cloud image variant runs it once on first boot.
+Builds a cloud-config dict and serialises it with PyYAML. The result is
+delivered to Incus via the `cloud-init.user-data` config key; the cloud image
+variant runs it once on first boot to install packages, mise, and any agent.
 """
 
 from __future__ import annotations
@@ -80,7 +76,7 @@ def build_user_data(
     # ---- runcmd ------------------------------------------------------------
     runcmd: list[str] = ["systemctl enable --now sshd"]
 
-    # EPEL + CRB for extras (htop). fuse-sshfs intentionally dropped.
+    # EPEL + CRB for extras (htop).
     runcmd.append(
         "dnf config-manager --set-enabled crb || true; "
         "dnf install -y epel-release || true; "

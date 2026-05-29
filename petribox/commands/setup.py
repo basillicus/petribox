@@ -6,7 +6,6 @@ import getpass
 import grp
 import shutil
 import subprocess
-from pathlib import Path
 
 from .. import incus
 from ._common import console
@@ -95,15 +94,6 @@ def cmd_initial_setup(args):
     else:
         console.print(f"  [yellow]![/yellow] could not query {incus.DEFAULT_IMAGE}")
         console.print("  [dim]Check connectivity to the images: remote[/dim]")
-
-    # 5. Legacy cleanup.
-    legacy = Path.home() / ".sandbox"
-    if legacy.exists():
-        console.print("\n[cyan]5. Legacy cleanup[/cyan]")
-        console.print(f"  [dim]Old state dir found: {legacy} (safe to remove)[/dim]")
-        if not auto and _confirm("  Remove it now?"):
-            shutil.rmtree(legacy, ignore_errors=True)
-            console.print("  [green]✓[/green] removed")
 
     console.print()
     if all_ok:

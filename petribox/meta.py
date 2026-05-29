@@ -1,10 +1,9 @@
 """
 Petribox metadata stored in Incus `user.petribox.*` instance config keys.
 
-This replaces the old SQLite database: Incus is the single source of truth, so
-there is no separate store to keep in sync. We stash petribox-specific fields
-(preset, agent, dotfiles source, creation time, comms port, ...) as instance
-config under the `user.petribox.` namespace.
+Incus is the single source of truth, so there is no separate store to keep in
+sync. Petribox-specific fields (preset, agent, dotfiles source, creation time,
+comms port, ...) live as instance config under the `user.petribox.` namespace.
 """
 
 from __future__ import annotations

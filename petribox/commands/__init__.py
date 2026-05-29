@@ -7,7 +7,6 @@ regardless of which submodule they live in.
 from .access import cmd_console, cmd_ssh
 from .forward import (
     cmd_port_forward,
-    cmd_port_forward_clean,
     cmd_port_forward_list,
     cmd_port_forward_stop,
 )
@@ -36,7 +35,6 @@ __all__ = [
     "cmd_console",
     "cmd_ssh",
     "cmd_port_forward",
-    "cmd_port_forward_clean",
     "cmd_port_forward_list",
     "cmd_port_forward_stop",
     "cmd_install",

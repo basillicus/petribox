@@ -20,7 +20,6 @@ from .commands import (
     cmd_mount,
     cmd_move,
     cmd_port_forward,
-    cmd_port_forward_clean,
     cmd_port_forward_list,
     cmd_port_forward_stop,
     cmd_remote_add,
@@ -122,8 +121,6 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("name")
     p.add_argument("port", type=int)
     p.add_argument("--local-port", type=int, help="Local port (default: same)")
-    p.add_argument("--background", "-b", action="store_true",
-                   help="(Accepted for compatibility; proxy devices are always persistent)")
     p.set_defaults(func=cmd_port_forward)
     p = sub.add_parser("port-forward-list", help="List active port forwards")
     p.set_defaults(func=cmd_port_forward_list)
@@ -131,8 +128,6 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("name")
     p.add_argument("port", type=int)
     p.set_defaults(func=cmd_port_forward_stop)
-    p = sub.add_parser("port-forward-clean", help="(No-op; forwards are Incus-managed)")
-    p.set_defaults(func=cmd_port_forward_clean)
 
     # install
     p = sub.add_parser("install", help="Install agents/packages into a running dish")
