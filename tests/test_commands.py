@@ -43,9 +43,11 @@ def test_create_resolves_preset_resources_and_injects_cloudinit(no_sleep):
     assert "root,size=25GiB" in init                                       # dev preset disk
     assert "cloud-init.user-data=#cloud-config" in joined
     assert "user.petribox.preset=dev" in joined and "user.petribox.user=petri" in joined
+    # VM gets the agent config drive (Rocky requires cdrom_agent)
+    assert ["config", "device", "add", "lab", "agent", "disk", "source=agent:config"] in captured
     # mount attached as a disk device before start
-    dev = next(c for c in captured if c[:3] == ["config", "device", "add"])
-    assert "disk" in dev and "path=/data" in " ".join(dev)
+    mount_dev = next(c for c in captured if c[:5] == ["config", "device", "add", "lab", "mnt-data"])
+    assert "disk" in mount_dev and "path=/data" in " ".join(mount_dev)
     assert ["start", "lab"] in captured
 
 
@@ -72,6 +74,8 @@ def test_create_container_has_no_vm_flag(no_sleep):
     init = next(c for c in captured if c[:1] == ["init"])
     assert "--vm" not in init
     assert "limits.memory=1024MiB" in " ".join(init)
+    # containers do not need the agent config drive
+    assert not any(c[:6] == ["config", "device", "add", "c1", "agent", "disk"] for c in captured)
 
 
 def test_create_rejects_existing():

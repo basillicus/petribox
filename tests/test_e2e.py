@@ -39,6 +39,8 @@ def dish():
 def test_create_exec_mount_forward_export(dish, tmp_path):
     image = "images:rockylinux/9/cloud" if USE_VM else "images:rockylinux/9"
     incus.init(dish, image, vm=USE_VM, config={"limits.memory": "1024MiB"})
+    if USE_VM:
+        incus.device_add(dish, "agent", "disk", source="agent:config")
     incus.start(dish)
 
     # Wait for running + IP.

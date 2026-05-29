@@ -110,6 +110,11 @@ def cmd_create(args):
     )
     console.print(f"[green]✓ Instance defined[/green] ({'VM' if is_vm else 'container'}, {ram}MB RAM, {cpus} CPU, {disk}GB disk)")
 
+    if is_vm:
+        # RHEL-family VM images (Rocky) need the incus-agent config delivered as
+        # a CDROM (requirements.cdrom_agent); it is not auto-added.
+        incus.device_add(name, "agent", "disk", source="agent:config")
+
     # Attach mounts before first boot so they are present immediately.
     for spec in args.mounts or []:
         host_path, _, vm_path = spec.partition(":")
