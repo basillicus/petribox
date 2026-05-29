@@ -23,6 +23,21 @@ def _dedup(seq: list[str]) -> list[str]:
     return list(dict.fromkeys(seq))
 
 
+def build_network_config() -> str:
+    """cloud-init network-config (v2) that forces DHCPv4 on the ethernet.
+
+    The Rocky cloud image's NetworkManager otherwise brings up only IPv6 (via
+    router advertisement), leaving an unusable link-local nameserver and no IPv4
+    route — which breaks dnf. Matching `e*` covers VM (enp5s0) and container
+    (eth0) interface names. IPv6 keeps working via accept-ra (the default).
+    """
+    config = {
+        "version": 2,
+        "ethernets": {"default": {"match": {"name": "e*"}, "dhcp4": True}},
+    }
+    return yaml.dump(config, default_flow_style=False, sort_keys=False)
+
+
 def build_user_data(
     *,
     hostname: str,

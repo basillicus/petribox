@@ -85,8 +85,21 @@ def cmd_initial_setup(args):
             console.print("  [dim]Run later: incus admin init --minimal[/dim]")
             all_ok = False
 
-    # 4. Image remote reachable.
-    console.print("\n[cyan]4. Image remote[/cyan]")
+    # 4. Docker firewall conflict (very common; blocks the Incus bridge).
+    console.print("\n[cyan]4. Firewall / Docker[/cyan]")
+    docker_present = shutil.which("docker") or _path_exists("/sys/class/net/docker0")
+    if docker_present:
+        console.print("  [yellow]![/yellow] Docker detected. Its iptables rules drop forwarding")
+        console.print("  on other bridges, which breaks Incus DHCP/NAT (no IPv4 in dishes).")
+        console.print("  [dim]Allow the Incus bridge through Docker's chain:[/dim]")
+        console.print("    [dim]sudo iptables -I DOCKER-USER -i incusbr0 -j ACCEPT[/dim]")
+        console.print("    [dim]sudo iptables -I DOCKER-USER -o incusbr0 -j ACCEPT[/dim]")
+        console.print("  [dim]Persist with iptables-persistent (Debian) or an equivalent.[/dim]")
+    else:
+        console.print("  [green]✓[/green] No Docker firewall conflict detected")
+
+    # 5. Image remote reachable.
+    console.print("\n[cyan]5. Image remote[/cyan]")
     img = subprocess.run(["incus", "image", "list", incus.DEFAULT_IMAGE, "--format", "csv"],
                          capture_output=True, text=True)
     if img.returncode == 0:
@@ -101,6 +114,12 @@ def cmd_initial_setup(args):
         console.print("  [dim]petribox create lab --preset dev[/dim]")
     else:
         console.print("[yellow]Setup incomplete — address the items above and re-run.[/yellow]")
+
+
+def _path_exists(path: str) -> bool:
+    import os
+
+    return os.path.exists(path)
 
 
 def _group_exists(name: str) -> bool:

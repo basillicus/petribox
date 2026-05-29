@@ -92,6 +92,7 @@ def cmd_create(args):
         "limits.cpu": str(cpus),
         "limits.memory": f"{ram}MiB",
         "cloud-init.user-data": user_data,
+        "cloud-init.network-config": cloudinit.build_network_config(),
         f"{meta.PREFIX}user": args.user,
         f"{meta.PREFIX}preset": args.preset or "",
         f"{meta.PREFIX}agent": getattr(args, "agent", "") or "",

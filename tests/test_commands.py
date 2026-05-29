@@ -42,6 +42,7 @@ def test_create_resolves_preset_resources_and_injects_cloudinit(no_sleep):
     assert "limits.cpu=2" in joined and "limits.memory=4096MiB" in joined  # dev preset
     assert "root,size=25GiB" in init                                       # dev preset disk
     assert "cloud-init.user-data=#cloud-config" in joined
+    assert "cloud-init.network-config=" in joined and "dhcp4: true" in joined
     assert "user.petribox.preset=dev" in joined and "user.petribox.user=petri" in joined
     # VM gets the agent config drive (Rocky requires cdrom_agent)
     assert ["config", "device", "add", "lab", "agent", "disk", "source=agent:config"] in captured

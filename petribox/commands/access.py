@@ -4,17 +4,27 @@ from __future__ import annotations
 
 import subprocess
 
-from .. import incus
+from .. import incus, meta
 from ._common import console, get_instance_or_exit, require_running
 
 
 def cmd_ssh(args):
-    """Open an interactive shell in the dish via `incus exec` (no SSH needed)."""
+    """Open a shell in the dish as the dish user via `incus exec` (no SSH needed).
+
+    `incus exec` runs as root by default, so we drop to the configured user with
+    a login shell (`su -`). Pass `--user root`-style by recreating with that user.
+    """
     get_instance_or_exit(args.name)
     require_running(args.name)
-    command = list(args.ssh_command) if getattr(args, "ssh_command", None) else None
-    # Replaces the current process with incus exec.
-    incus.exec_interactive(args.name, command)
+    user = meta.get_meta(args.name).get("user") or "root"
+    requested = list(args.ssh_command) if getattr(args, "ssh_command", None) else None
+
+    if user == "root":
+        incus.exec_interactive(args.name, requested)
+    elif requested:
+        incus.exec_interactive(args.name, ["su", "-", user, "-c", " ".join(requested)])
+    else:
+        incus.exec_interactive(args.name, ["su", "-", user])
 
 
 def cmd_console(args):
