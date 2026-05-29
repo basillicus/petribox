@@ -71,6 +71,24 @@ pixi run petribox import lab.tar.gz
 | `ai-researcher` | 8 GB | 4 | ML/AI with Jupyter |
 | `agentic` | 8 GB | 4 | Agentic AI (LangChain, Docker) |
 
+## Troubleshooting: a dish has no internet (packages/mise missing)
+
+If `cloud-init status` shows `error` and `dnf` can't resolve mirrors, the dish
+has IPv6 but no IPv4 — a **host firewall** is dropping the Incus bridge's DHCP/NAT.
+A default-deny firewall overrides Incus's own allow rules. Allow `incusbr0`:
+
+```bash
+# ufw
+sudo ufw allow in on incusbr0
+sudo ufw route allow in on incusbr0
+sudo ufw route allow out on incusbr0
+
+# firewalld
+sudo firewall-cmd --permanent --zone=trusted --add-interface=incusbr0 && sudo firewall-cmd --reload
+```
+
+Then recreate the dish. `petribox initial-setup` flags this if it detects ufw/firewalld/Docker.
+
 ## Tips
 
 - **No SSH required** — `connect` uses `incus exec`. Pass `--ssh-key` only if you want SSH too.

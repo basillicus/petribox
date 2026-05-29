@@ -85,18 +85,28 @@ def cmd_initial_setup(args):
             console.print("  [dim]Run later: incus admin init --minimal[/dim]")
             all_ok = False
 
-    # 4. Docker firewall conflict (very common; blocks the Incus bridge).
-    console.print("\n[cyan]4. Firewall / Docker[/cyan]")
-    docker_present = shutil.which("docker") or _path_exists("/sys/class/net/docker0")
-    if docker_present:
-        console.print("  [yellow]![/yellow] Docker detected. Its iptables rules drop forwarding")
-        console.print("  on other bridges, which breaks Incus DHCP/NAT (no IPv4 in dishes).")
-        console.print("  [dim]Allow the Incus bridge through Docker's chain:[/dim]")
+    # 4. Host firewall conflict (very common: a default-deny firewall drops the
+    #    Incus bridge's DHCP/NAT even though Incus adds its own accept rules,
+    #    because every nftables base chain at a hook is evaluated and any drop
+    #    wins). Symptom: dishes get IPv6 but no IPv4, so dnf/cloud-init fail.
+    console.print("\n[cyan]4. Host firewall[/cyan]")
+    if shutil.which("ufw"):
+        console.print("  [yellow]![/yellow] ufw detected. If dishes have no IPv4, allow the bridge:")
+        console.print("    [dim]sudo ufw allow in on incusbr0[/dim]")
+        console.print("    [dim]sudo ufw route allow in on incusbr0[/dim]")
+        console.print("    [dim]sudo ufw route allow out on incusbr0[/dim]")
+    elif shutil.which("firewall-cmd"):
+        console.print("  [yellow]![/yellow] firewalld detected. If dishes have no IPv4, trust the bridge:")
+        console.print("    [dim]sudo firewall-cmd --permanent --zone=trusted --add-interface=incusbr0[/dim]")
+        console.print("    [dim]sudo firewall-cmd --reload[/dim]")
+    elif shutil.which("docker") or _path_exists("/sys/class/net/docker0"):
+        console.print("  [yellow]![/yellow] Docker detected. If dishes have no IPv4, allow the bridge:")
         console.print("    [dim]sudo iptables -I DOCKER-USER -i incusbr0 -j ACCEPT[/dim]")
         console.print("    [dim]sudo iptables -I DOCKER-USER -o incusbr0 -j ACCEPT[/dim]")
-        console.print("  [dim]Persist with iptables-persistent (Debian) or an equivalent.[/dim]")
     else:
-        console.print("  [green]✓[/green] No Docker firewall conflict detected")
+        console.print("  [green]✓[/green] No common firewall manager detected")
+        console.print("  [dim]If dishes get IPv6 but no IPv4, your host firewall is dropping[/dim]")
+        console.print("  [dim]inbound/forwarded traffic on incusbr0 — allow it there.[/dim]")
 
     # 5. Image remote reachable.
     console.print("\n[cyan]5. Image remote[/cyan]")
