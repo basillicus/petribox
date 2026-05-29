@@ -1,5 +1,9 @@
 """
-Dotfiles Management - Apply user configurations to sandboxes
+Dotfiles management - apply user configurations to dishes via incus.
+
+Sources: a git URL, a local directory, or a built-in preset. Scripts run as
+root inside the dish (incus exec) and write into the target user's home, then
+chown so the user owns them.
 """
 
 import subprocess
@@ -9,9 +13,26 @@ from typing import Optional
 
 from rich.console import Console
 
-from .ssh_ops import ssh_connect, ssh_copy_file, ssh_run_script
+from . import incus
 
 console = Console()
+
+
+def _run_script(name: str, script: str) -> None:
+    """Push a script into the dish and execute it; raise on failure."""
+    with tempfile.NamedTemporaryFile("w", suffix=".sh", delete=False) as handle:
+        handle.write(script)
+        local = handle.name
+    try:
+        remote = "/tmp/petribox-dotfiles.sh"
+        incus.file_push(name, local, remote, mode="0755")
+        proc = incus.exec_capture(name, ["bash", remote])
+        if proc.returncode != 0:
+            raise RuntimeError((proc.stderr or proc.stdout or "dotfiles script failed").strip())
+    finally:
+        import os
+
+        os.unlink(local)
 
 
 # Built-in dotfile presets
@@ -121,168 +142,114 @@ alias pip='pip3'
 
 
 def apply_dotfiles(
-    vm_name: str,
-    vm_ip: str,
-    vm_user: str,
+    name: str,
+    user: str,
     source: str,
     preset_name: Optional[str] = None,
 ):
-    """
-    Apply dotfiles to a sandbox
+    """Apply dotfiles to a dish.
 
     Args:
-        vm_name: VM name
-        vm_ip: VM IP address
-        vm_user: VM username
-        source: Source specification (git URL, local path, or preset name)
-        preset_name: Optional preset name for built-in presets
+        name: dish (instance) name
+        user: target username inside the dish
+        source: git URL, local path, or preset name
+        preset_name: explicit preset name override
     """
-    # Determine source type
-    if source.startswith("http://") or source.startswith("https://"):
-        # Git repository
-        _apply_git_dotfiles(vm_ip, vm_user, source)
-    elif source.startswith("/") or source.startswith("~"):
-        # Local path
-        _apply_local_dotfiles(vm_ip, vm_user, source)
+    if source.startswith(("http://", "https://", "git@")):
+        _apply_git_dotfiles(name, user, source)
+    elif source.startswith(("/", "~", "./")):
+        _apply_local_dotfiles(name, user, source)
     elif source in DOTFILE_PRESETS or preset_name:
-        # Built-in preset
-        preset = preset_name or source
-        _apply_preset_dotfiles(vm_ip, vm_user, preset)
+        _apply_preset_dotfiles(name, user, preset_name or source)
+    elif Path(source).expanduser().exists():
+        _apply_local_dotfiles(name, user, source)
     else:
-        # Try as preset first, then as local path
-        if source in DOTFILE_PRESETS:
-            _apply_preset_dotfiles(vm_ip, vm_user, source)
-        elif Path(source).exists():
-            _apply_local_dotfiles(vm_ip, vm_user, source)
-        else:
-            raise ValueError(f"Unknown dotfiles source: {source}")
+        raise ValueError(f"Unknown dotfiles source: {source}")
 
 
-def _apply_git_dotfiles(vm_ip: str, vm_user: str, git_url: str):
-    """Apply dotfiles from a git repository"""
+def _home_prelude(user: str) -> str:
+    return f'set -e\nH="/home/{user}"\nmkdir -p "$H"\n'
+
+
+def _chown_coda(user: str) -> str:
+    return f'\nchown -R {user}:{user} "$H"\necho "Dotfiles applied."\n'
+
+
+def _apply_git_dotfiles(name: str, user: str, git_url: str):
     console.print(f"[dim]Cloning dotfiles from {git_url}...[/dim]")
-
-    script = f"""#!/bin/bash
-set -e
-
-# Clone dotfiles repo
-cd ~
-if [ -d .dotfiles ]; then
-    echo "Dotfiles directory already exists, pulling updates..."
-    cd .dotfiles && git pull
+    script = _home_prelude(user) + f"""
+cd "$H"
+if [ -d "$H/.dotfiles" ]; then
+    git -C "$H/.dotfiles" pull
 else
-    git clone {git_url} .dotfiles
+    git clone {git_url} "$H/.dotfiles"
 fi
-
-# Install dotfiles (common patterns)
-if [ -f .dotfiles/install.sh ]; then
-    echo "Running install script..."
-    cd .dotfiles && bash install.sh
-elif [ -f .dotfiles/Makefile ]; then
-    echo "Running Makefile..."
-    cd .dotfiles && make install
+if [ -f "$H/.dotfiles/install.sh" ]; then
+    cd "$H/.dotfiles" && bash install.sh
+elif [ -f "$H/.dotfiles/Makefile" ]; then
+    cd "$H/.dotfiles" && make install
 else
-    echo "Symlinking dotfiles..."
-    for file in .dotfiles/.*; do
-        if [ -f "$file" ] || [ -d "$file" ]; then
-            base=$(basename "$file")
-            if [ "$base" != ".dotfiles" ] && [ "$base" != ".git" ]; then
-                ln -sf "$file" ~/"$base"
-            fi
-        fi
+    for file in "$H"/.dotfiles/.*; do
+        base=$(basename "$file")
+        [ "$base" = ".dotfiles" ] && continue
+        [ "$base" = ".git" ] && continue
+        [ "$base" = "." ] && continue
+        [ "$base" = ".." ] && continue
+        ln -sf "$file" "$H/$base"
     done
 fi
-
-echo "Dotfiles applied successfully!"
-"""
-
-    ssh_run_script(vm_ip, vm_user, script)
+""" + _chown_coda(user)
+    _run_script(name, script)
 
 
-def _apply_local_dotfiles(vm_ip: str, vm_user: str, local_path: str):
-    """Apply dotfiles from a local directory"""
+def _apply_local_dotfiles(name: str, user: str, local_path: str):
     local_path = Path(local_path).expanduser()
-
     if not local_path.exists():
         raise FileNotFoundError(f"Dotfiles path not found: {local_path}")
-
     console.print(f"[dim]Copying dotfiles from {local_path}...[/dim]")
 
-    # Create tarball of dotfiles
     with tempfile.TemporaryDirectory() as tmpdir:
         tarball = Path(tmpdir) / "dotfiles.tar.gz"
-
-        # Create tarball
         subprocess.run(
             ["tar", "-czf", str(tarball), "-C", str(local_path.parent), local_path.name],
             check=True,
         )
+        incus.file_push(name, str(tarball), "/tmp/petribox-dotfiles.tar.gz")
 
-        # Copy to VM
-        ssh_copy_file(vm_ip, vm_user, tarball, "/tmp/dotfiles.tar.gz")
-
-    # Extract and install in VM
-    script = f"""#!/bin/bash
-set -e
-
-cd ~
-mkdir -p .dotfiles_local
-tar -xzf /tmp/dotfiles.tar.gz -C .dotfiles_local --strip-components=1
-rm /tmp/dotfiles.tar.gz
-
-# Symlink dotfiles
-for file in .dotfiles_local/.*; do
-    if [ -f "$file" ] || [ -d "$file" ]; then
-        base=$(basename "$file")
-        if [ "$base" != ".git" ]; then
-            ln -sf "$file" ~/"$base"
-        fi
-    fi
+    script = _home_prelude(user) + """
+mkdir -p "$H/.dotfiles_local"
+tar -xzf /tmp/petribox-dotfiles.tar.gz -C "$H/.dotfiles_local" --strip-components=1
+rm -f /tmp/petribox-dotfiles.tar.gz
+for file in "$H"/.dotfiles_local/.*; do
+    base=$(basename "$file")
+    [ "$base" = ".git" ] && continue
+    [ "$base" = "." ] && continue
+    [ "$base" = ".." ] && continue
+    ln -sf "$file" "$H/$base"
 done
-
-echo "Dotfiles applied successfully!"
-"""
-
-    ssh_run_script(vm_ip, vm_user, script)
+""" + _chown_coda(user)
+    _run_script(name, script)
 
 
-def _apply_preset_dotfiles(vm_ip: str, vm_user: str, preset_name: str):
-    """Apply built-in dotfile preset"""
+def _apply_preset_dotfiles(name: str, user: str, preset_name: str):
     if preset_name not in DOTFILE_PRESETS:
         raise ValueError(f"Unknown preset: {preset_name}")
-
     preset = DOTFILE_PRESETS[preset_name]
     console.print(f"[dim]Applying preset: {preset_name} - {preset['description']}[/dim]")
 
-    # Create script to apply dotfiles
     files_script = ""
     for filename, content in preset["files"].items():
-        # Escape content for shell
-        escaped_content = content.replace("'", "'\"'\"'")
         dir_path = str(Path(filename).parent)
         if dir_path != ".":
-            files_script += f"mkdir -p ~/{dir_path}\n"
-        files_script += f"cat > ~/{filename} << 'DOTFILE_EOF'\n{content}\nDOTFILE_EOF\n"
+            files_script += f'mkdir -p "$H/{dir_path}"\n'
+        files_script += f'cat > "$H/{filename}" << \'DOTFILE_EOF\'\n{content}\nDOTFILE_EOF\n'
 
-    # Add bashrc sourcing if extra bashrc exists
     if ".bashrc_extra" in preset["files"]:
         files_script += """
-# Source extra bashrc
-if [ -f ~/.bashrc_extra ]; then
-    if ! grep -q "bashrc_extra" ~/.bashrc; then
-        echo '' >> ~/.bashrc
-        echo '# Sandbox extra config' >> ~/.bashrc
-        echo '[ -f ~/.bashrc_extra ] && . ~/.bashrc_extra' >> ~/.bashrc
-    fi
+if ! grep -q "bashrc_extra" "$H/.bashrc" 2>/dev/null; then
+    printf '\\n# petribox extra config\\n[ -f ~/.bashrc_extra ] && . ~/.bashrc_extra\\n' >> "$H/.bashrc"
 fi
 """
 
-    script = f"""#!/bin/bash
-set -e
-
-{files_script}
-
-echo "Preset '{preset_name}' applied successfully!"
-"""
-
-    ssh_run_script(vm_ip, vm_user, script)
+    script = _home_prelude(user) + "\n" + files_script + _chown_coda(user)
+    _run_script(name, script)

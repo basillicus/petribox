@@ -1,5 +1,5 @@
 """
-Agent configurations for sandbox VMs.
+Agent configurations for petribox dishes.
 
 Each agent defines:
 - name: Display name
