@@ -1,416 +1,226 @@
-# Sandbox - AI Experiment VM Manager
+# Petribox
 
-Quick and isolated Rocky Linux 9 sandboxes for AI experiments, Agentic AI development, and evaluation.
+Opinionated convenience on top of [Incus](https://linuxcontainers.org/incus/) for spinning up Linux environments ready to run AI agents.
 
-## Features
-
-- **One-command VM creation** - Fully configured Rocky Linux 9 VMs with cloud-init
-- **SSH access** - Via `sandbox connect` command or direct SSH to VMs
-- **Lifecycle management** - Create, list, start, stop, delete VMs
-- **Data sharing** - Mount host directories via 9p or SSHFS
-- **Dotfiles support** - Apply your configs from git repo, local directory, or built-in presets
-- **Configuration files** - YAML configs for packages, tools, and environment
-- **Interactive TUI** - Menu-driven creation with preset configurations
-- **Port forwarding** - Forward VM ports to localhost with background tunnel management
-- **Agent installation** - Install AI agents (Hermes, OpenClaw, ZeroClaw) at VM creation
-- **Mise auto-installation** - Version manager automatically installed with dependencies
-
----
-
-## Platform Requirements
-
-**Linux** This tool requires:
-
-- `libvirt` with QEMU/KVM
-- `virt-install`, `virsh`, `qemu-img`, `cloud-localds`
-- Python 3.10+
-
-**Windows users:** This tool does **not** work on native Windows. Use **WSL2** with libvirt configured inside the WSL2 environment. Not tested
-
-**macOS users:** Not tested.
-
----
-
-## Quick Start
-
-### One-Time Setup
-
-Install pixi first:
+If you know Incus well, petribox is mostly convenience. Its value is that it encodes the tribal knowledge — cloud-init YAML, mise setup, Rocky-specific quirks, DHCPv4 network config, which packages the Rocky cloud image is missing — into named presets. You get a working environment with one command instead of writing 60 lines of YAML and hitting three non-obvious bugs.
 
 ```bash
-curl -fsSL https://pixi.sh/install.sh | sh
+petribox create lab --preset dev          # VM, 4 GB RAM, mise + node@24
+petribox create fast --container --preset minimal   # container, boots in seconds
+petribox connect lab                      # shell as the configured user, not root
 ```
 
-Then run the automated setup:
+vs the raw Incus equivalent: write `user-data.yaml` + `network-config.yaml`, know that Rocky needs `agent:config` added before start, know that `tar`/`gzip` and `openssh-server` are missing from the cloud image, know to run mise as the user not root, manually poll for cloud-init, then `su -` to your user because `incus exec` gives you root.
+
+**What petribox is not:** a security sandbox, a policy engine, or an agent framework. It is a provisioning layer.
+
+## What it does
+
+- **Presets** — `minimal` / `dev` / `ai-researcher` / `agentic` encode opinionated defaults for RAM, CPU, disk, packages, and mise toolchains.
+- **cloud-init generation** — builds the user-data and network-config YAML correctly for Rocky Linux VMs (the gotchas are handled for you).
+- **User setup** — `--user alice` creates the user, wires SSH keys, stores it, and `petribox connect` drops you in as that user.
+- **Portability** — `export`/`import`/`move` to migrate a dish to another machine or a remote Incus host.
+- **Mounts** — `petribox mount` attaches a host directory via virtiofs (VMs) or bind mount (containers). Requires `virtiofsd` installed on the host for VMs.
+- **Port-forwards** — Incus proxy devices, persistent across reboots.
+- **Agent installs** — `--agent hermes` wires an agent's install script and mise packages into cloud-init.
+
+## Requirements
+
+Linux, [Incus](https://github.com/lxc/incus) installed, user in the `incus` or `incus-admin` group. Python 3.10+.
 
 ```bash
-pixi run sandbox initial-setup
+petribox initial-setup   # checks and explains anything missing
 ```
 
-This will:
-1. Check for required tools and show install commands if missing
-2. Verify libvirt service is running
-3. Create or reuse SSH keys for VM access
-4. Download and verify Rocky Linux image (checksum verified)
-5. Suggest a convenient shell alias
+For VM mounts: `sudo apt install -y virtiofsd` (containers work without it).
 
-**Note:** You will be prompted for your sudo password when creating or managing sandboxes. This is required because libvirt needs system-level access.
-
-### Prerequisites
+## Quick start
 
 ```bash
-# Install required packages (Fedora/RHEL/Rocky)
-sudo dnf install virt-install cloud-image-utils libvirt-daemon-system libvirt-clients
+# one-time
+pixi run petribox initial-setup
 
-# Install required packages (Debian/Ubuntu)
-sudo apt install virtinst qemu-utils libvirt-clients libvirt-daemon-system
+# create
+pixi run petribox create lab --preset dev
+pixi run petribox connect lab
 
-# Start libvirt
-sudo systemctl enable --now libvirtd
-
-# Add user to  libvirt group
-sudo usermod -aG libvirt $USER
-newgrp libvirt
+# or install the command directly
+pipx install -e .
+petribox create lab --preset dev
 ```
 
-### Create Your First Sandbox
+First boot (cloud-init) takes 1–3 minutes. Subsequent boots are seconds.
 
-```bash
-# Interactive mode (recommended for first time)
-pixi run sandbox create --tui
-
-# Or directly with a preset
-pixi run sandbox create my-ai-lab --preset ai-researcher --ram 8192 --cpus 4
-```
-
-### Connect to Your Sandbox
-
-```bash
-# Option 1: Using the connect wrapper (convenient)
-pixi run sandbox connect my-sandbox
-
-# Option 2: Using standard SSH
-pixi run sandbox list  # Get IP
-ssh sandbox@192.168.122.xxx
-```
-
-NOTE: If you have kitty, you may want to run once: 
-```bash
-kitten ssh sandbox@192.168.122.xxx
-```
-This will pass all the necesary files to have a fully working terminal on the remote machine.
-
-
----
-
-## CLI Commands
-
-### VM Management
+## Commands
 
 | Command | Description |
-|---------|-------------|
-| `sandbox create <name> [options]` | Create a new sandbox |
-| `sandbox create --tui` | Interactive creation mode |
-| `sandbox list` | List all sandboxes |
-| `sandbox status <name>` | Show detailed status |
-| `sandbox up <name>` | Start a stopped sandbox |
-| `sandbox down <name>` | Stop a running sandbox |
-| `sandbox delete <name>` | Delete a sandbox (removes VM and disk) |
-| `sandbox connect <name>` | SSH into a sandbox |
-| `sandbox console <name>` | Connect to serial console |
+|---|---|
+| `create <name> [opts]` / `create --tui` | Create a dish (VM by default, `--container` for lightweight) |
+| `list` / `status <name>` | List dishes / show one in detail |
+| `up <name>` / `down <name>` / `delete <name>` | Start / stop / delete |
+| `connect <name> [cmd]` | Shell (or run a command) via `incus exec` |
+| `console <name>` | Attach to the instance console |
+| `mount <name> <host> <vm>` / `umount <name> <vm>` | Share / unshare a host directory |
+| `port-forward <name> <port> [--local-port P]` | Forward a dish port to the host |
+| `port-forward-list` / `port-forward-stop <name> <port>` | Manage forwards |
+| `install <name> --agent X` / `--mise-package P` | Install into a running dish |
+| `export <name> [-o file]` / `import <file> [name]` | Backup / restore |
+| `move <name> <remote[:name]> [--copy]` | Migrate to a remote Incus host |
+| `remote-add <name> <url>` / `remote-list` | Manage remote Incus servers |
+| `comms <name> [--protocol a2a\|mcp] [--expose] [--runtime CMD]` | Mark a dish comms-ready |
+| `ssh-config` | Refresh `~/.ssh/petribox_config` with running dishes; adds `Include` to `~/.ssh/config` once |
+| `initial-setup [-y]` | Check / set up Incus prerequisites |
 
-### Create Options
+### Create options
 
-| Option | Description | Default |
-|--------|-------------|---------|
-| `--ram MB` | RAM in MB | 4096 |
-| `--cpus NUM` | Number of CPUs | 2 |
-| `--disk GB` | Disk size in GB | 20 |
-| `--user NAME` | Username | sandbox |
-| `--password PASS` | User password (optional) | none |
-| `--ssh-key PATH` | SSH public key file | ~/.ssh/id_ed25519.pub |
-| `--shell TYPE` | Shell (bash/zsh) | bash |
-| `--preset NAME` | Configuration preset | none |
-| `--config FILE` | YAML configuration file | none |
-| `--dotfiles SRC` | Dotfiles source | none |
-| `--mount HOST:VM` | Mount host directory | none |
-| `--agent NAME` | Install AI agent at creation | none |
-
-### Port Forwarding
-
-```bash
-# Forward VM port to localhost
-sandbox port-forward <name> <port> [--local-port PORT] [-b]
-
-# List active tunnels
-sandbox port-forward-list
-
-# Stop a tunnel
-sandbox port-forward-stop <name> <port>
-
-# Clean up stale tunnels
-sandbox port-forward-clean
-```
-
-### Install Command
-
-Install software into a running sandbox:
-
-```bash
-# Install an AI agent
-sandbox install <name> --agent hermes
-
-# Install mise packages
-sandbox install <name> --mise-package node@22 --mise-package python@3.12
-```
-
----
+`--container`, `--ram MB`, `--cpus N`, `--disk GB`, `--user NAME` (default `petri`),
+`--ssh-key PATH`, `--password`, `--image` (default `images:rockylinux/9/cloud`),
+`--dotfiles SRC`, `--mount HOST:VM` (repeatable), `--config FILE`,
+`--shell bash|zsh`, `--preset NAME`, `--agent NAME`.
 
 ## Presets
 
-| Preset | RAM | CPUs | Disk | Use Case |
-|--------|-----|------|------|----------|
-| `minimal` | 2GB | 1 | 15GB | Basic testing, lightweight tasks |
-| `dev` | 4GB | 2 | 25GB | General development |
-| `ai-researcher` | 8GB | 4 | 40GB | ML/AI work with Jupyter |
-| `agentic` | 8GB | 4 | 50GB | Agentic AI with LangChain |
+| Preset | RAM | CPUs | Disk | Extras |
+|---|---|---|---|---|
+| `minimal` | 2 GB | 1 | 15 GB | base packages only |
+| `dev` | 4 GB | 2 | 25 GB | gcc, make, `node@24` via mise |
+| `ai-researcher` | 8 GB | 4 | 40 GB | `python@3.12` via mise, jupyterlab, numpy, pandas, matplotlib, scikit-learn |
+| `agentic` | 8 GB | 4 | 50 GB | docker, `python@3.12` + `node@24` via mise, langchain, langgraph, pydantic, httpx |
 
-### What Each Preset Includes
+Base packages on every dish: vim, python3, git, curl, wget, tmux, mise.
 
-**All presets include:**
-- Mise (version manager) auto-installed
-- System dependencies: libatomic, openssl-devel, bzip2-devel, libffi-devel
-- Basic tools: vim, python3, git, curl, wget, tmux
+Override any resource: `--ram 8192 --cpus 4 --disk 50`.
 
-**Additional by preset:**
-- **dev**: gcc, make, node@24 via mise
-- **ai-researcher**: python3-pip, python@3.12 via mise, jupyterlab, numpy, pandas, matplotlib, scikit-learn
-- **agentic**: docker, node@24 + python@3.12 via mise, jupyterlab, langchain, langgraph, pydantic, httpx
-
----
-
-## Configuration Files
-
-Create YAML configs for reproducible environments:
+## Config files
 
 ```yaml
 # my-config.yaml
-packages:
-  - vim-enhanced
-  - python3-pip
-  - git
-  - tmux
-
-mise_packages:
-  - node@20
-  - python@3.12
-
-pip_packages:
-  - jupyterlab
-  - numpy
-  - pandas
-
-environment:
-  EDITOR: vim
-  MY_VAR: value
-
-runcmd:
-  - echo "Setup complete"
+packages: [vim-enhanced, python3-pip]
+mise_packages: [node@20, python@3.12]
+pip_packages: [jupyterlab, numpy]
+environment: { EDITOR: vim }
+runcmd: ["echo setup complete"]
 ```
+```bash
+petribox create mybox --config my-config.yaml
+```
+
+## Portability
 
 ```bash
-pixi run sandbox create mybox --config my-config.yaml
+petribox down lab
+petribox export lab -o lab.tar.gz
+# copy lab.tar.gz to another machine
+petribox import lab.tar.gz && petribox up lab
+
+# or migrate live to a remote Incus host
+petribox remote-add cloud https://incus.example.com:8443
+petribox move lab cloud
 ```
 
-See `examples/` for complete configuration examples.
+## Agent communication (preview)
 
----
+`petribox comms <name>` records a protocol and port in the instance metadata and optionally opens it. Dishes reach each other by Incus DNS name (`<name>.incus`). Full A2A/MCP protocol support is on the roadmap — see `docs/ROADMAP.md`.
 
-## Dotfiles
-
-Apply your development environment automatically after VM creation. Three sources are supported:
-
-### From Git Repository
+## Development
 
 ```bash
-pixi run sandbox create mybox --dotfiles https://github.com/youruser/dotfiles
+pip install -e ".[test]"
+pytest -m "not e2e"            # unit tests (mocked incus)
+PETRIBOX_E2E=1 pytest -m e2e   # real Incus instances (opt-in)
 ```
 
-The tool clones your dotfiles repo inside the VM and:
-- Runs `install.sh` or `make install` if present
-- Otherwise, symlinks dotfiles from `~/.dotfiles` to your home directory
-
-### From Local Directory
-
-```bash
-pixi run sandbox create mybox --dotfiles ~/.dotfiles
-```
-
-Your local dotfiles are tarballed, copied to the VM via SCP, extracted, and symlinked to the home directory.
-
-### Built-in Presets
-
-```bash
-pixi run sandbox create mybox --dotfiles dev
-```
-
-Available presets:
-- `minimal` - Basic vim and inputrc configuration
-- `dev` - Enhanced vim, tmux, and git config
-- `ai-researcher` - + Jupyter configuration and ML aliases
-
----
-
-## AI Agents
-
-Install AI agents at VM creation or into existing VMs:
-
-```bash
-# At creation
-pixi run sandbox create agent-box --agent hermes
-
-# Into existing VM
-sandbox install my-vm --agent openclaw
-```
-
-Available agents:
-- **hermes** - AI agent for autonomous task execution
-- **openclaw** - AI assistant for email, calendar, tasks via chat apps
-- **zeroclaw** - Lightweight Rust-based AI assistant
-
----
-
-## Data Sharing
-
-### 9p Mounts (at creation)
-
-```bash
-pixi run sandbox create mybox \
-  --mount ~/data:/data \
-  --mount ~/projects:/projects
-```
-
-Note: 9p mounts require VM restart to activate.
-
-### SSHFS (runtime, from inside VM)
-
-```bash
-# From inside the VM
-sshfs your-host-user@192.168.122.1:/home/your-host-user/data ~/data
-```
-
----
-
-## Rocky Linux Quick Reference
-
-Inside your sandbox:
-
-```bash
-# Package management
-sudo dnf install <package>
-sudo dnf update
-sudo dnf search <keyword>
-
-# Mise (version manager)
-mise use -g node@24
-mise use -g python@3.12
-mise ls
-
-# System info
-hostnamectl
-df -h
-free -h
-
-# Network
-ip addr show
-ping google.com
-```
-
----
-
-## Troubleshooting
-
-### VM won't boot
-```bash
-sandbox console <name>  # Check console output
-sudo journalctl -u libvirtd
-```
-
-### Can't connect via SSH 
-Wait 2-3 minutes for cloud-init on first boot. Then:
-```bash
-sandbox status <name>
-sudo virsh domifaddr <name>
-```
-### Not all packages are installed
-Wait 2-3 minutes for cloud-init on first boot. You may be able to connect to the VM before all packages have been fully installed. 
-
-### Permission denied for virsh
-```bash
-sudo usermod -aG libvirt $USER
-newgrp libvirt
-```
-
-### No default network
-```bash
-sudo virsh net-define /usr/share/libvirt/networks/default.xml
-sudo virsh net-start default
-sudo virsh net-autostart default
-```
-
-### VM stuck in "creating" status
-```bash
-sandbox delete <name> --force
-```
-
----
-
-## Architecture
-
-```
-sandbox/                   # Python package
-├── __init__.py
-├── __main__.py           # Entry point
-├── cli.py                # CLI argument parsing
-├── commands.py           # Command implementations
-├── database.py           # SQLite database (~/.sandbox/sandboxes.db)
-├── libvirt_ops.py        # Libvirt operations
-├── ssh_ops.py            # SSH operations
-├── mount_ops.py          # 9p/virtiofs mounts
-├── dotfiles.py           # Dotfiles management
-├── config_loader.py      # Config loading
-├── tunnel_manager.py     # Port-forward tracking
-├── agents.py             # AI agent configurations
-└── tui.py                # Interactive TUI
-```
-
----
-
-## Project Structure
-
-```
-vmisos/
-├── sandbox/                  # Python package
-├── examples/                 # Example YAML configs
-├── pixi.toml                 # Pixi environment
-├── sandbox.sh                # Wrapper script
-├── README.md                 # This file
-├── QUICK_START.md            # Getting started guide
-└── Rocky-9-*.qcow2           # Base image (downloaded)
-```
-
----
-
-## Extending
-
-1. **New commands** - Add to `cli.py` and implement in `commands.py`
-2. **New presets** - Add to `PRESETS` dict in `commands.py` and `tui.py`
-3. **New dotfiles** - Add to `DOTFILE_PRESETS` in `dotfiles.py`
-4. **New agents** - Add to `AGENTS` dict in `agents.py`
-5. **Custom packages** - Use YAML config files
-
----
+See `docs/ARCHITECTURE.md` and `docs/E2E-CHECKLIST.md`.
 
 ## License
 
 MIT
+
+---
+
+## Appendix: which agent should I use?
+
+A quick guide for picking the right agent. Every agent below installs with `petribox create <name> --agent <key>`.
+
+### At a glance
+
+| Agent | Key | Language | Binary size | RAM footprint | Primary use |
+|---|---|---|---|---|---|
+| Hermes | `hermes` | Python + Node | Medium | ~150 MB | Autonomous task execution |
+| OpenClaw | `openclaw` | Node | Medium | ~100 MB | Life automation via chat apps |
+| NemoClaw | `nemoclaw` | Node (NVIDIA) | Large | ~200 MB + Docker | Secure OpenClaw with policy controls |
+| NullClaw | `nullclaw` | Zig | **678 KB** | ~1 MB | Minimal edge/embedded AI |
+| PicoClaw | `picoclaw` | Go | ~10 MB | ~10 MB | Edge + chat integrations + web UI |
+| Loong | `loong` | Rust | Medium | ~30 MB | Building custom vertical agents |
+| ZeroClaw | `zeroclaw` | Rust | Small | ~5 MB | Provider-agnostic personal assistant |
+| Pi | `pi` | TypeScript | Medium | ~80 MB | Interactive terminal coding |
+
+---
+
+### Hermes
+**Autonomous task execution** built by NousResearch. Given a goal, Hermes breaks it down, executes steps, and reports results. Closest to a "do this for me" agent — it acts on your behalf rather than waiting for turn-by-turn input.
+
+**Use Hermes if:** you want to hand off a multi-step task and come back to a result.
+
+---
+
+### OpenClaw
+**Life automation via chat.** Connects to WhatsApp, Telegram, and other messaging apps and handles email, calendar, flight check-ins, and similar daily tasks. It is not a coding agent — it is a personal-life automation layer.
+
+**Use OpenClaw if:** you want an agent running in a dish that manages your inbox and calendar without you opening a laptop.
+
+---
+
+### NemoClaw (NVIDIA)
+**OpenClaw with enterprise security.** Wraps OpenClaw with network policy enforcement (agents must request permission before making network calls), multi-provider inference routing, and an operator approval workflow. Adds Docker as a dependency and requires an NVIDIA API key.
+
+**Use NemoClaw instead of OpenClaw if:** you are deploying in a shared or regulated environment and need to control what the agent is allowed to reach on the network.
+
+**Skip NemoClaw if:** you are doing local personal use — the governance overhead is not worth it.
+
+---
+
+### NullClaw
+**The smallest possible AI agent.** A 678 KB static Zig binary with zero runtime dependencies. Boots in under 8 ms, uses about 1 MB of RAM. No web UI, no chat integrations — just the agent binary.
+
+**Use NullClaw if:** you are targeting genuinely constrained hardware, you want zero moving parts, or you philosophically prefer the smallest footprint possible.
+
+**NullClaw vs PicoClaw:** NullClaw is smaller and has zero deps; PicoClaw trades some size for a web UI, 16 chat integrations, and multi-architecture pre-built binaries. Pick NullClaw for raw minimalism, PicoClaw for minimalism-with-UX.
+
+---
+
+### PicoClaw (Sipeed)
+**Lightweight Go binary with a web UI and chat integrations.** ~10 MB, <1 second startup, runs on Raspberry Pi, Android, RISC-V. Supports 16+ messaging platforms (Telegram, Discord, Slack, WeChat, DingTalk, etc.) and 10+ LLM providers. Has native MCP support.
+
+**Use PicoClaw if:** you want to deploy an agent on a Raspberry Pi or similar hardware and need it to respond via Telegram or another chat platform, not just the terminal.
+
+**PicoClaw vs NullClaw:** PicoClaw is larger but ready to integrate with external services out of the box. NullClaw is a bare binary with no integrations.
+
+---
+
+### Loong
+**A framework for building your own vertical agents.** Not a ready-made assistant — it is infrastructure. Comes with 42+ LLM/tool providers and 25+ channels (Slack, Lark, Discord, DingTalk) pre-wired. You configure which providers and channels you want, then write the agent logic on top.
+
+**Use Loong if:** you want to build a custom agent that routes through specific providers and channels rather than running someone else's agent as-is. Think of it as the backbone, not the product.
+
+**Skip Loong if:** you just want to install and run an agent without writing Rust.
+
+---
+
+### ZeroClaw
+**Provider-agnostic personal assistant in Rust.** Positions itself as "99% less memory than OpenClaw" (≈5 MB RAM). Works with any OpenRouter-compatible provider — you supply the API key and the provider name.
+
+**Use ZeroClaw if:** you want a low-memory personal assistant without committing to OpenAI or Anthropic specifically, and you are comfortable using a Rust-native binary.
+
+**ZeroClaw vs NullClaw:** ZeroClaw is provider-agnostic and has a real CLI UX; NullClaw is even smaller but more opinionated about its interface.
+
+---
+
+### Pi (earendil-works)
+**A minimal, extensible terminal coding agent.** Unlike Hermes (autonomous task runner) or OpenClaw (life automation), Pi is specifically a *coding* assistant that lives in your terminal. Its differentiator is that it imposes no workflow — you can write TypeScript plugins, custom prompts, and skills to shape exactly how it behaves. Supports 20+ LLM providers with a unified interface.
+
+**Use Pi if:** you want an AI pair-programmer in the terminal that you can customise deeply, and you do not want it to silently make decisions about how to structure the interaction.
+
+**Pi vs Hermes:** Hermes is autonomous (it acts and reports back); Pi is interactive (you stay in the loop). Pi is more like a smart terminal co-pilot. Hermes is more like delegating the task entirely.
+
+**Pi vs Claude Code / Cursor:** Pi is provider-agnostic and fully open to extension. Claude Code and Cursor are polished products with opinionated UX. Pi is the right choice if you want to own the workflow.
