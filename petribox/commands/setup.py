@@ -118,6 +118,20 @@ def cmd_initial_setup(args):
         console.print(f"  [yellow]![/yellow] could not query {incus.DEFAULT_IMAGE}")
         console.print("  [dim]Check connectivity to the images: remote[/dim]")
 
+    # 6. virtiofsd — required for VM disk-device (virtiofs) mounts.
+    console.print("\n[cyan]6. virtiofsd (VM mounts)[/cyan]")
+    if shutil.which("virtiofsd"):
+        console.print("  [green]✓[/green] virtiofsd found")
+    else:
+        console.print("  [yellow]![/yellow] virtiofsd not found — VM disk mounts will fail")
+        if shutil.which("apt"):
+            console.print("  [dim]Install with: sudo apt install -y virtiofsd[/dim]")
+        elif shutil.which("dnf"):
+            console.print("  [dim]Install with: sudo dnf install -y virtiofsd[/dim]")
+        else:
+            console.print("  [dim]Install the 'virtiofsd' package for your distribution[/dim]")
+        console.print("  [dim](Container mounts work without virtiofsd)[/dim]")
+
     console.print()
     if all_ok:
         console.print("[green]Setup complete. Create a dish:[/green]")

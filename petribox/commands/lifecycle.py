@@ -71,12 +71,26 @@ def cmd_create(args):
             "Use 'petribox connect' (incus exec) or add a key with --ssh-key."
         )
 
+    # --env KEY=VALUE flags: merge into config.environment before cloud-init build
+    for kv in (getattr(args, "env", None) or []):
+        key, _, value = kv.partition("=")
+        if not key:
+            fail(f"Invalid --env value '{kv}', expected KEY=VALUE")
+        config.setdefault("environment", {})[key] = value
+
     agent_config = None
     if getattr(args, "agent", None):
         from ..agents import get_agent_config
 
         agent_config = get_agent_config(args.agent)
         console.print(f"[dim]Agent: {agent_config['name']}[/dim]")
+        # Warn about any env vars the agent requires
+        for req_key in agent_config.get("required_env", []):
+            if req_key not in config.get("environment", {}):
+                console.print(
+                    f"[yellow]  Note: {agent_config['name']} needs {req_key} — "
+                    f"set it with: petribox env set {args.name} {req_key} <value>[/yellow]"
+                )
 
     user_data = cloudinit.build_user_data(
         hostname=name,

@@ -29,7 +29,9 @@ from .portability import (
     cmd_remote_list,
 )
 from .comms import cmd_comms
+from .env import cmd_env_list, cmd_env_set, cmd_env_unset
 from .setup import cmd_initial_setup
+from .ssh_config import cmd_ssh_config
 
 __all__ = [
     "cmd_console",
@@ -53,5 +55,9 @@ __all__ = [
     "cmd_remote_add",
     "cmd_remote_list",
     "cmd_comms",
+    "cmd_env_set",
+    "cmd_env_list",
+    "cmd_env_unset",
+    "cmd_ssh_config",
     "cmd_initial_setup",
 ]

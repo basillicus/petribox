@@ -12,6 +12,9 @@ from .commands import (
     cmd_create,
     cmd_delete,
     cmd_down,
+    cmd_env_list,
+    cmd_env_set,
+    cmd_env_unset,
     cmd_export,
     cmd_import,
     cmd_initial_setup,
@@ -25,6 +28,7 @@ from .commands import (
     cmd_remote_add,
     cmd_remote_list,
     cmd_ssh,
+    cmd_ssh_config,
     cmd_status,
     cmd_umount,
     cmd_up,
@@ -32,7 +36,7 @@ from .commands import (
 from .presets import PRESET_NAMES
 from .tui import run_create_tui
 
-AGENT_CHOICES = ["hermes", "openclaw", "zeroclaw"]
+AGENT_CHOICES = ["hermes", "openclaw", "nemoclaw", "nullclaw", "picoclaw", "loong", "zeroclaw", "pi"]
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -65,6 +69,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--shell", choices=["bash", "zsh"], default="bash", help="Login shell")
     p.add_argument("--preset", choices=PRESET_NAMES, help="Configuration preset")
     p.add_argument("--agent", choices=AGENT_CHOICES, help="Install an AI agent at creation")
+    p.add_argument("--env", action="append", metavar="KEY=VALUE",
+                   help="Set an environment variable (repeatable, e.g. --env OPENAI_API_KEY=sk-...)")
     p.set_defaults(func=cmd_create)
 
     # list
@@ -129,6 +135,33 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("port", type=int)
     p.set_defaults(func=cmd_port_forward_stop)
 
+    # env
+    p = sub.add_parser("env", help="Manage environment variables inside a dish")
+    env_sub = p.add_subparsers(dest="env_action", help="env sub-commands")
+
+    ep = env_sub.add_parser("set", help="Set an environment variable")
+    ep.add_argument("name")
+    ep.add_argument("key", metavar="KEY")
+    ep.add_argument("value", metavar="VALUE")
+    ep.set_defaults(func=cmd_env_set)
+
+    ep = env_sub.add_parser("list", help="List environment variables")
+    ep.add_argument("name")
+    ep.set_defaults(func=cmd_env_list)
+
+    ep = env_sub.add_parser("unset", help="Remove an environment variable")
+    ep.add_argument("name")
+    ep.add_argument("key", metavar="KEY")
+    ep.set_defaults(func=cmd_env_unset)
+
+    def _env_dispatch(args):
+        if not args.env_action:
+            p.print_help()
+        else:
+            args.func(args)
+
+    p.set_defaults(func=_env_dispatch)
+
     # install
     p = sub.add_parser("install", help="Install agents/packages into a running dish")
     p.add_argument("name")
@@ -165,6 +198,13 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--expose", action="store_true", help="Expose the port to the host")
     p.add_argument("--runtime", help="Shell command to install the comms runtime in the dish")
     p.set_defaults(func=cmd_comms)
+
+    # ssh-config
+    p = sub.add_parser(
+        "ssh-config",
+        help="Update ~/.ssh/petribox_config with running dishes for use with ssh/kitten",
+    )
+    p.set_defaults(func=cmd_ssh_config)
 
     # initial-setup
     p = sub.add_parser("initial-setup", help="Install/initialise Incus prerequisites")

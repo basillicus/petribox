@@ -15,7 +15,7 @@ import yaml
 
 # Always present, regardless of preset/config. The Rocky cloud image is minimal:
 # tar/gzip are absent and the mise installer needs them to unpack its tarball.
-DEFAULT_PACKAGES = ["vim", "python3", "git", "curl", "wget", "tmux", "tar", "gzip"]
+DEFAULT_PACKAGES = ["vim", "python3", "git", "curl", "wget", "tmux", "tar", "gzip", "openssh-server"]
 # Build dependencies mise needs to compile language runtimes on Rocky.
 MISE_BUILD_DEPS = ["libatomic", "openssl-devel", "bzip2-devel", "libffi-devel"]
 
@@ -92,6 +92,12 @@ def build_user_data(
 
     # ---- runcmd ------------------------------------------------------------
     runcmd: list[str] = ["systemctl enable --now sshd"]
+
+    if not password:
+        # On RHEL/Rocky, lock_passwd:true writes '!!' to shadow which PAM
+        # treats as a locked account, blocking pubkey SSH auth entirely.
+        # '* ' means "no password" without the lock flag — pubkey auth works.
+        runcmd.append(f"usermod -p '*' {user}")
 
     # EPEL + CRB for extras (htop).
     runcmd.append(
