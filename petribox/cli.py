@@ -103,6 +103,8 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("connect", help="Open a shell in the dish (incus exec)")
     p.add_argument("name")
     p.add_argument("ssh_command", nargs="*", help="Command to run (optional)")
+    p.add_argument("--gui", "-X", action="store_true",
+                   help="Forward X11 over ssh -Y so GUI apps (ase gui, matplotlib) display on the host")
     p.set_defaults(func=cmd_ssh)
 
     # mount / umount

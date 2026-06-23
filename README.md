@@ -59,6 +59,7 @@ First boot (cloud-init) takes 1–3 minutes. Subsequent boots are seconds.
 | `list` / `status <name>` | List dishes / show one in detail |
 | `up <name>` / `down <name>` / `delete <name>` | Start / stop / delete |
 | `connect <name> [cmd]` | Shell (or run a command) via `incus exec` |
+| `connect <name> --gui` | Shell over `ssh -Y` with X11 forwarding for GUI apps (`ase gui`, interactive matplotlib) |
 | `console <name>` | Attach to the instance console |
 | `mount <name> <host> <vm>` / `umount <name> <vm>` | Share / unshare a host directory |
 | `port-forward <name> <port> [--local-port P]` | Forward a dish port to the host |
