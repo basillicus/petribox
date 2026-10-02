@@ -11,10 +11,24 @@ Get your first AI-agent dish running in a couple of minutes.
 sudo apt install -y incus
 # Fedora
 sudo dnf install -y incus
+# Arch (the daemon is not started on install; cdrtools is needed for VMs)
+sudo pacman -S incus cdrtools virtiofsd
+sudo systemctl enable --now incus.socket incus.service
 
 # Join the group (full management) and re-login for it to take effect
 sudo usermod -aG incus-admin $USER   # or 'incus' on some distros
 ```
+
+Don't want to log out? `newgrp incus-admin` picks up the group in the current
+shell only. Repeat it in each new terminal until your next login.
+
+### Arch notes
+
+- `virtiofsd` installs to `/usr/lib/virtiofsd` (not on `PATH`). Incus finds it there.
+- Without `cdrtools` (`mkisofs`), VMs fail to start with
+  `Neither mkisofs nor genisoimage could be found`. Containers don't need it.
+- `Failed to connect to local daemon ... unix.socket: no such file` means the
+  daemon isn't running. Run the `systemctl enable --now` line above.
 
 ## 2. One-time setup
 

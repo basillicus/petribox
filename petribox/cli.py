@@ -225,8 +225,8 @@ def main():
         sys.exit(1)
 
     if args.command == "create" and args.tui:
-        run_create_tui()
-        sys.exit(0)
+        # Route through the same error handling as every other command.
+        args.func = lambda _args: run_create_tui()
 
     if not hasattr(args, "func"):
         parser.print_help()

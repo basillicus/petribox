@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shutil
 import sys
 import time
 from pathlib import Path
@@ -116,6 +117,12 @@ def cmd_create(args):
     }
 
     console.print(f"[green]=== Creating dish: {name} ===[/green]")
+    if is_vm and not (shutil.which("mkisofs") or shutil.which("genisoimage")):
+        # Incus builds the agent config CDROM with these; checking now avoids
+        # leaving a defined-but-unbootable instance behind.
+        fail("VMs need mkisofs or genisoimage on the host "
+             "(Arch: sudo pacman -S cdrtools; Debian/Ubuntu: sudo apt install genisoimage; "
+             "Fedora: sudo dnf install genisoimage)")
     incus.init(
         name,
         image,

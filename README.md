@@ -32,7 +32,16 @@ Linux, [Incus](https://github.com/lxc/incus) installed, user in the `incus` or `
 petribox initial-setup   # checks and explains anything missing
 ```
 
-For VM mounts: `sudo apt install -y virtiofsd` (containers work without it).
+VMs also need host tools that containers don't:
+
+| Distro | VM packages | Notes |
+|---|---|---|
+| Debian/Ubuntu | `sudo apt install -y virtiofsd genisoimage` | |
+| Fedora | `sudo dnf install -y virtiofsd genisoimage` | |
+| Arch | `sudo pacman -S incus cdrtools virtiofsd` | Start the daemon: `sudo systemctl enable --now incus.socket incus.service`. `virtiofsd` lives at `/usr/lib/virtiofsd`. |
+
+- `virtiofsd` is used for VM mounts.
+- `mkisofs`/`genisoimage` is used to build the VM agent config CDROM. Without it, VMs fail to start.
 
 ## Quick start
 

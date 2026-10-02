@@ -70,7 +70,16 @@ def cmd_initial_setup(args):
     console.print("\n[cyan]3. Incus initialisation[/cyan]")
     pools = subprocess.run(["incus", "storage", "list", "--format", "csv"],
                            capture_output=True, text=True)
-    if pools.returncode == 0 and pools.stdout.strip():
+    if "no such file or directory" in pools.stderr.lower():
+        # Socket missing: the daemon isn't running, init can't succeed yet.
+        console.print("  [red]✗[/red] Incus daemon not running")
+        console.print("  [dim]Run: sudo systemctl enable --now incus.socket incus.service[/dim]")
+        all_ok = False
+    elif "permission denied" in pools.stderr.lower():
+        console.print("  [red]✗[/red] No access to the Incus socket (group not active in this shell)")
+        console.print(f"  [dim]Run: newgrp {member_of or 'incus-admin'}  (or log out and back in)[/dim]")
+        all_ok = False
+    elif pools.returncode == 0 and pools.stdout.strip():
         console.print("  [green]✓[/green] Incus already initialised (storage pool present)")
     else:
         console.print("  [yellow]![/yellow] Incus not initialised")
@@ -120,7 +129,7 @@ def cmd_initial_setup(args):
 
     # 6. virtiofsd — required for VM disk-device (virtiofs) mounts.
     console.print("\n[cyan]6. virtiofsd (VM mounts)[/cyan]")
-    if shutil.which("virtiofsd"):
+    if _find_virtiofsd():
         console.print("  [green]✓[/green] virtiofsd found")
     else:
         console.print("  [yellow]![/yellow] virtiofsd not found — VM disk mounts will fail")
@@ -132,12 +141,34 @@ def cmd_initial_setup(args):
             console.print("  [dim]Install the 'virtiofsd' package for your distribution[/dim]")
         console.print("  [dim](Container mounts work without virtiofsd)[/dim]")
 
+    # 7. ISO tool — Incus builds the VM agent config CDROM with it.
+    console.print("\n[cyan]7. mkisofs/genisoimage (VMs)[/cyan]")
+    if shutil.which("mkisofs") or shutil.which("genisoimage"):
+        console.print("  [green]✓[/green] ISO tool found")
+    else:
+        console.print("  [yellow]![/yellow] neither mkisofs nor genisoimage found — VMs will fail to start")
+        if shutil.which("pacman"):
+            console.print("  [dim]Install with: sudo pacman -S cdrtools[/dim]")
+        elif shutil.which("apt"):
+            console.print("  [dim]Install with: sudo apt install -y genisoimage[/dim]")
+        elif shutil.which("dnf"):
+            console.print("  [dim]Install with: sudo dnf install -y genisoimage[/dim]")
+        console.print("  [dim](Containers work without it)[/dim]")
+
     console.print()
     if all_ok:
         console.print("[green]Setup complete. Create a dish:[/green]")
         console.print("  [dim]petribox create lab --preset dev[/dim]")
     else:
         console.print("[yellow]Setup incomplete — address the items above and re-run.[/yellow]")
+
+
+# Incus also looks outside PATH; Arch ships it as /usr/lib/virtiofsd.
+VIRTIOFSD_PATHS = ("/usr/lib/virtiofsd", "/usr/libexec/virtiofsd", "/usr/lib/qemu/virtiofsd")
+
+
+def _find_virtiofsd() -> bool:
+    return bool(shutil.which("virtiofsd")) or any(_path_exists(p) for p in VIRTIOFSD_PATHS)
 
 
 def _path_exists(path: str) -> bool:
