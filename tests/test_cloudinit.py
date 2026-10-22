@@ -79,3 +79,11 @@ def test_environment_never_in_user_data():
                                      config={"environment": {"OPENAI_API_KEY": "sk-secret"}})
     assert "sk-secret" not in text
     assert ".config/petribox/env" in text  # rc sources the env file pushed after boot
+
+
+def test_network_config_names_interfaces_explicitly():
+    # Rocky's sysconfig renderer ignores `match` globs, so each NIC is named.
+    config = yaml.safe_load(cloudinit.build_network_config())
+    ethernets = config["ethernets"]
+    assert set(ethernets) == {"enp5s0", "eth0"}
+    assert all(e["dhcp4"] and "match" not in e for e in ethernets.values())

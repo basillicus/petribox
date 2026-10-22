@@ -32,12 +32,18 @@ def build_network_config() -> str:
 
     The Rocky cloud image's NetworkManager otherwise brings up only IPv6 (via
     router advertisement), leaving an unusable link-local nameserver and no IPv4
-    route — which breaks dnf. Matching `e*` covers VM (enp5s0) and container
-    (eth0) interface names. IPv6 keeps working via accept-ra (the default).
+    route — which breaks dnf. IPv6 keeps working via accept-ra (the default).
+
+    Interfaces are named explicitly: Rocky renders this with cloud-init's
+    sysconfig renderer, which ignores `match: name: e*` and writes an ifcfg
+    for a device literally called after the key. enp5s0 is the Incus VM NIC,
+    eth0 the container one; the absent one is harmless.
     """
     config = {
         "version": 2,
-        "ethernets": {"default": {"match": {"name": "e*"}, "dhcp4": True}},
+        "ethernets": {
+            name: {"dhcp4": True, "optional": True} for name in ("enp5s0", "eth0")
+        },
     }
     return yaml.dump(config, default_flow_style=False, sort_keys=False)
 
