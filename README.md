@@ -97,9 +97,10 @@ the Incus agent inside. Install it once from the graphical console:
 
 ```bash
 incus console pb-kali --type=vga    # log in (Kali: kali / kali), open a terminal
-sudo mount -t 9p config /mnt        # if that fails: sudo mount /dev/disk/by-label/incus-agent /mnt
-cd /mnt && sudo ./install.sh && cd / && sudo umount /mnt
-sudo systemctl start incus-agent
+sudo -i                             # the agent drive is readable by root only
+mount /dev/disk/by-label/incus-agent /mnt   # "mounted read-only" is expected
+cd /mnt && ./install.sh && cd / && umount /mnt
+systemctl start incus-agent
 ```
 
 Then finish the build from the host: `petribox build kali --resume`.
