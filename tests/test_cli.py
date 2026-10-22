@@ -37,7 +37,7 @@ def test_build_provisions_then_snapshots(fake):
     init = fake.calls[0]
     assert init[:3] == ("init", "images:rockylinux/9", "pb-rocky") and "--vm" in init
     assert "user.petribox.user=petri" in init
-    assert verbs(fake) == ["init", "config device", "start", "exec", "stop", "snapshot create"]
+    assert verbs(fake) == ["init", "config device", "start", "exec", "exec", "stop", "snapshot create"]
 
 
 def test_build_refuses_existing_base(fake):

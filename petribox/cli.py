@@ -86,7 +86,12 @@ def provision_and_snapshot(r: recipes.Recipe, timeout: float) -> None:
               input=r.script(), capture=False)
 
     print(f"== {r.base}: snapshot 'clean'")
-    incus.run("stop", r.base)
+    # Some guests (Kali's desktop image) ignore the ACPI shutdown request, so
+    # flush the disks first and force the stop if the clean one times out.
+    incus.run("exec", r.base, "--", "sync", check=False)
+    if incus.run("stop", r.base, "--timeout", "60", check=False).returncode != 0:
+        print(f"== {r.base}: guest ignored shutdown, forcing the stop")
+        incus.run("stop", r.base, "--force")
     if incus.has_snapshot(r.base, "clean"):
         incus.run("snapshot", "delete", r.base, "clean")
     incus.run("snapshot", "create", r.base, "clean")
