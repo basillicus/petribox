@@ -6,6 +6,7 @@ import argparse
 import io
 import json
 import os
+import re
 import shlex
 import sys
 import tarfile
@@ -16,6 +17,7 @@ from pathlib import Path
 from . import __version__, incus, recipes, secrets
 
 USER_KEY = "user.petribox.user"  # set on the base, so every copy carries it
+RECIPE_KEY = "user.petribox.recipe"
 
 
 def fail(msg: str) -> None:
@@ -58,7 +60,8 @@ def cmd_build(args) -> None:
 
     init = ["init", r.image, r.base,
             "-c", f"limits.cpu={r.cpus}", "-c", f"limits.memory={r.memory}",
-            "-c", f"{USER_KEY}={r.user}", "-d", f"root,size={r.disk}"]
+            "-c", f"{USER_KEY}={r.user}", "-c", f"{RECIPE_KEY}={r.name}",
+            "-d", f"root,size={r.disk}"]
     for key, value in r.config.items():
         init += ["-c", f"{key}={value}"]
     if r.vm:
@@ -109,7 +112,7 @@ def cmd_new(args) -> None:
     # happens before anything is created.
     env = {key: secrets.resolve(key) for key in args.secret or []}
 
-    copy = ["copy", f"{r.base}/clean", args.name]
+    copy = ["copy", f"{r.base}/clean", args.name, "-c", f"{RECIPE_KEY}={r.name}"]
     if args.ephemeral:
         copy.append("--ephemeral")
     if args.cpus:
@@ -141,6 +144,57 @@ def apply_dotfiles(name: str, user: str, repo: str) -> None:
     )
     print(f"dotfiles: {repo}")
     incus.run("exec", name, "--", "su", "-", user, "-c", script, capture=False)
+
+
+def cmd_list(args) -> None:
+    """Instances petribox made (dishes, and bases with --bases)."""
+    rows = []
+    for inst in json.loads(incus.run("list", "--format", "json").stdout or "[]"):
+        conf = inst.get("config") or {}
+        if USER_KEY not in conf:
+            continue
+        is_base = inst["name"].startswith(recipes.BASE_PREFIX)
+        if is_base and not args.bases:
+            continue
+        recipe = conf.get(RECIPE_KEY) or (inst["name"].removeprefix(recipes.BASE_PREFIX) if is_base else "?")
+        ipv4 = [a["address"] for nic, net in ((inst.get("state") or {}).get("network") or {}).items()
+                if nic != "lo" for a in net.get("addresses", []) if a.get("family") == "inet"]
+        kind = "vm" if inst.get("type") == "virtual-machine" else "container"
+        notes = ", ".join(n for n, on in (("base", is_base), ("ephemeral", inst.get("ephemeral"))) if on)
+        rows.append((inst["name"], recipe, kind, inst["status"], ipv4[0] if ipv4 else "-", notes))
+    if not rows:
+        print("no dishes (make one: petribox new NAME --from RECIPE)")
+        return
+    rows.insert(0, ("NAME", "RECIPE", "TYPE", "STATE", "IPV4", ""))
+    widths = [max(len(r[i]) for r in rows) for i in range(5)]
+    for row in rows:
+        print("  ".join(c.ljust(w) for c, w in zip(row, widths)), row[5])
+
+
+def cmd_mount(args) -> None:
+    """Share a host directory into a dish (an Incus disk device)."""
+    src = Path(args.source).expanduser().resolve()
+    if not src.is_dir():
+        fail(f"no such directory: {src}")
+    user = dish_user(args.name)
+    dest = args.dest
+    if not dest:
+        home = incus.run("exec", args.name, "--", "getent", "passwd", user).stdout.split(":")[5]
+        dest = f"{home}/{src.name}"
+    device = args.device or re.sub(r"[^A-Za-z0-9-]", "-", src.name).strip("-") or "share"
+    disk = ["config", "device", "add", args.name, device, "disk",
+            f"source={src}", f"path={dest}"]
+    if json.loads(incus.run("query", f"/1.0/instances/{args.name}").stdout).get("type") == "container":
+        disk.append("shift=true")  # map host ownership onto the container's users
+    incus.run(*disk)
+    # In a running VM the agent mounts it a few seconds later; wait for that.
+    for _ in range(30):
+        if incus.run("exec", args.name, "--", "mountpoint", "-q", dest, check=False).returncode == 0:
+            break
+        time.sleep(1)
+    else:
+        print(f"petribox: {dest} is not mounted yet; it will be after a restart", file=sys.stderr)
+    print(f"{src} -> {args.name}:{dest}  (remove: incus config device remove {args.name} {device})")
 
 
 def cmd_import_image(args) -> None:
@@ -217,6 +271,17 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--memory", help="override the recipe's memory limit, e.g. 8GiB")
     p.add_argument("--no-dotfiles", action="store_true", help="skip [dotfiles] from the config")
     p.set_defaults(func=cmd_new)
+
+    p = sub.add_parser("list", help="list dishes with their recipe and address")
+    p.add_argument("--bases", action="store_true", help="include the pb-* base instances")
+    p.set_defaults(func=cmd_list)
+
+    p = sub.add_parser("mount", help="share a host directory into a dish")
+    p.add_argument("name")
+    p.add_argument("source", help="host directory")
+    p.add_argument("dest", nargs="?", help="path in the dish (default: ~user/<dir name>)")
+    p.add_argument("--device", help="Incus device name (default: from the dir name)")
+    p.set_defaults(func=cmd_mount)
 
     p = sub.add_parser("import-image", help="turn a VM disk image (qcow2) into a local Incus image")
     p.add_argument("disk")

@@ -1,5 +1,6 @@
 """Command flows against a fake incus: what gets called, in which order."""
 
+import json
 import types
 
 import pytest
@@ -60,3 +61,45 @@ def test_new_needs_a_built_recipe(fake):
     with pytest.raises(SystemExit):
         cli.main(["new", "lab", "--from", "rocky"])
     assert fake.calls == []
+
+
+def test_new_records_the_recipe(fake):
+    fake.snapshots.add(("pb-rocky", "clean"))
+    fake.config["user.petribox.user"] = "petri"
+    cli.main(["new", "dish", "--from", "rocky", "--no-dotfiles"])
+    assert "user.petribox.recipe=rocky" in fake.calls[0]
+
+
+def test_list_shows_only_petribox_dishes(fake, capsys):
+    instances = [
+        {"name": "lab", "type": "virtual-machine", "status": "Running", "ephemeral": True,
+         "config": {"user.petribox.user": "petri", "user.petribox.recipe": "rocky"},
+         "state": {"network": {"eth0": {"addresses": [{"family": "inet", "address": "10.0.0.5"}]}}}},
+        {"name": "pb-rocky", "type": "virtual-machine", "status": "Stopped",
+         "config": {"user.petribox.user": "petri"}},
+        {"name": "other", "type": "container", "status": "Running", "config": {}},
+    ]
+    fake.run = lambda *a, **k: types.SimpleNamespace(returncode=0, stdout=json.dumps(instances), stderr="")
+    incus.run = fake.run
+    cli.main(["list"])
+    out = capsys.readouterr().out
+    assert "lab" in out and "10.0.0.5" in out and "ephemeral" in out
+    assert "pb-rocky" not in out and "other" not in out
+    cli.main(["list", "--bases"])
+    assert "pb-rocky" in capsys.readouterr().out
+
+
+def test_mount_shifts_only_for_containers(fake, tmp_path, monkeypatch):
+    def run(*args, **kw):
+        fake.calls.append(args)
+        out = {"query": json.dumps({"type": "container"}),
+               "exec": "petri:x:1000:1000::/home/petri:/bin/bash"}.get(args[0], "")
+        if args[:2] == ("config", "get"):
+            out = "petri"
+        return types.SimpleNamespace(returncode=0, stdout=out, stderr="")
+    monkeypatch.setattr(incus, "run", run)
+    (tmp_path / "my src").mkdir()
+    cli.main(["mount", "lab", str(tmp_path / "my src")])
+    add = next(c for c in fake.calls if c[:3] == ("config", "device", "add"))
+    assert add[3:6] == ("lab", "my-src", "disk")
+    assert f"path=/home/petri/my src" in add and "shift=true" in add

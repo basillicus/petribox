@@ -37,7 +37,9 @@ incus stop try1              # gone
 | `petribox recipes` | List recipes and whether their base is built |
 | `petribox build RECIPE [--rebuild]` | Create `pb-RECIPE` from the image, run `_common.sh` + `provision.sh` as root, stop it, snapshot `clean` |
 | `petribox new NAME --from RECIPE [--ephemeral] [--secret KEY]... [--cpus N] [--memory 8GiB] [--no-dotfiles]` | `incus copy pb-RECIPE/clean NAME`, start, hand in secrets, apply dotfiles |
+| `petribox list [--bases]` | Your dishes with recipe, state and IPv4 (`--bases` adds the `pb-*` bases) |
 | `petribox shell NAME [CMD...]` | Login shell (or one command) as the dish user |
+| `petribox mount NAME DIR [DEST]` | Share a host directory, by default at `~user/<dir name>`; remove with `incus config device remove NAME <device>` |
 | `petribox secret NAME` / `NAME KEY...` / `NAME --unset KEY` | List (masked), set or remove a dish's secrets |
 
 ## Recipes
@@ -132,9 +134,9 @@ dish) keeps the real key out of the dish.
 
 | Task | Command |
 |---|---|
-| List, start, stop, delete | `incus list`, `incus start lab`, `incus stop lab`, `incus delete -f lab` |
+| Start, stop, delete | `incus start lab`, `incus stop lab`, `incus delete -f lab` |
 | Snapshot and roll back | `incus snapshot create lab before-upgrade`, `incus snapshot restore lab before-upgrade` |
-| Share a host folder | `incus config device add lab src disk source=$PWD path=/home/petri/src shift=true` |
+| Copy files in, out | `incus file push -r ./src lab/home/petri/`, `incus file pull -r lab/home/petri/out ./` |
 | Forward a port to the host | `incus config device add lab web proxy listen=tcp:127.0.0.1:8080 connect=tcp:127.0.0.1:8080` |
 | Graphical console (VMs) | `incus console lab --type=vga` (needs `remote-viewer`: `sudo pacman -S virt-viewer` or your distro's virt-viewer) |
 | Export, import | `incus export lab lab.tar.gz`, `incus import lab.tar.gz` |
