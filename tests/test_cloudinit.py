@@ -73,7 +73,9 @@ def test_mise_runs_as_dish_user_not_root():
     assert "export HOME=" not in runcmd  # old root+HOME approach is gone
 
 
-def test_environment_vars_appended():
-    doc = _doc(hostname="x", user="petri", ssh_key="k",
-               config={"environment": {"EDITOR": "vim"}})
-    assert any("EDITOR=" in c and ".bashrc" in c for c in doc["runcmd"])
+def test_environment_never_in_user_data():
+    # user-data is stored in the instance config and travels with exports.
+    text = cloudinit.build_user_data(hostname="x", user="petri", ssh_key="k",
+                                     config={"environment": {"OPENAI_API_KEY": "sk-secret"}})
+    assert "sk-secret" not in text
+    assert ".config/petribox/env" in text  # rc sources the env file pushed after boot

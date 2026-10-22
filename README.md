@@ -26,7 +26,7 @@ vs the raw Incus equivalent: write `user-data.yaml` + `network-config.yaml`, kno
 
 ## Requirements
 
-Linux, [Incus](https://github.com/lxc/incus) installed, user in the `incus` or `incus-admin` group. Python 3.10+.
+Linux, [Incus](https://github.com/lxc/incus) installed, user in the `incus` or `incus-admin` group. Python 3.10+ (uv installs one if needed).
 
 ```bash
 petribox initial-setup   # checks and explains anything missing
@@ -43,19 +43,22 @@ VMs also need host tools that containers don't:
 - `virtiofsd` is used for VM mounts.
 - `mkisofs`/`genisoimage` is used to build the VM agent config CDROM. Without it, VMs fail to start.
 
+## Install
+
+```bash
+uv tool install git+https://github.com/<owner>/petribox   # or: pipx install git+...
+# from a local checkout: uv tool install .
+uv tool upgrade petribox                                  # later
+```
+
+This puts `petribox` in `~/.local/bin` with its own isolated environment.
+
 ## Quick start
 
 ```bash
-# one-time
-pixi run petribox initial-setup
-
-# create
-pixi run petribox create lab --preset dev
-pixi run petribox connect lab
-
-# or install the command directly
-pipx install -e .
+petribox initial-setup        # one-time
 petribox create lab --preset dev
+petribox connect lab
 ```
 
 First boot (cloud-init) takes 1–3 minutes. Subsequent boots are seconds.
@@ -74,6 +77,7 @@ First boot (cloud-init) takes 1–3 minutes. Subsequent boots are seconds.
 | `port-forward <name> <port> [--local-port P]` | Forward a dish port to the host |
 | `port-forward-list` / `port-forward-stop <name> <port>` | Manage forwards |
 | `install <name> --agent X` / `--mise-package P` | Install into a running dish |
+| `env set <name> KEY [VALUE] [--from-cmd CMD]` / `env list` / `env unset [KEY\|--all]` | Manage env vars / API keys in a dish |
 | `export <name> [-o file]` / `import <file> [name]` | Backup / restore |
 | `move <name> <remote[:name]> [--copy]` | Migrate to a remote Incus host |
 | `remote-add <name> <url>` / `remote-list` | Manage remote Incus servers |
@@ -86,7 +90,46 @@ First boot (cloud-init) takes 1–3 minutes. Subsequent boots are seconds.
 `--container`, `--ram MB`, `--cpus N`, `--disk GB`, `--user NAME` (default `petri`),
 `--ssh-key PATH`, `--password`, `--image` (default `images:rockylinux/9/cloud`),
 `--dotfiles SRC`, `--mount HOST:VM` (repeatable), `--config FILE`,
-`--shell bash|zsh`, `--preset NAME`, `--agent NAME`.
+`--shell bash|zsh`, `--preset NAME`, `--agent NAME`, `--env KEY=VALUE`,
+`--secret KEY` (both repeatable).
+
+## API keys and secrets
+
+The agent in a dish can read every key you give that dish. Petribox can't stop
+that, so it focuses on three things: keys never leak outside the dish, each dish
+only gets the keys you name, and keys are never stored on the host by petribox.
+
+- **Use a separate key per dish, with a spending limit** (OpenAI, Anthropic and
+  OpenRouter all support this). A leaked key then costs little and is easy to revoke.
+- Values are looked up **on the host** and written to `~/.config/petribox/env`
+  (mode 0600) inside the dish over stdin. They never go into cloud-init
+  user-data, `incus config`, or host process arguments.
+- The dish never gets access to your password manager. Don't forward its socket
+  into a dish: that hands the agent the whole vault.
+
+Keep secret sources in `~/.config/petribox/config.toml`. Each entry is a host
+command that prints the value (see `examples/config.toml.example`):
+
+```toml
+[secrets]
+OPENAI_API_KEY    = { cmd = "secret-tool lookup service openai" }   # KeePassXC / GNOME Keyring / KWallet
+ANTHROPIC_API_KEY = { cmd = "keepassxc-cli show -q -a password ~/Passwords.kdbx 'AI/Anthropic'" }
+```
+
+```bash
+petribox create lab --agent pi --secret ANTHROPIC_API_KEY   # resolved from config.toml
+petribox env set lab OPENAI_API_KEY                          # config.toml source, else hidden prompt
+petribox env set lab HF_TOKEN --from-cmd "pass show api/hf"  # one-off command
+petribox env list lab                                        # values masked (--show to reveal)
+petribox env unset lab --all                                 # e.g. before export
+```
+
+`petribox export` warns when a dish still holds secrets, since the export
+contains its disk.
+
+New to this? [docs/TUTORIAL-credentials.md](docs/TUTORIAL-credentials.md) walks
+through a full run (dish, token, private repo clone, cleanup) and explains what
+the agent can and cannot reach at each step.
 
 ## Presets
 
@@ -135,9 +178,8 @@ petribox move lab cloud
 ## Development
 
 ```bash
-pip install -e ".[test]"
-pytest -m "not e2e"            # unit tests (mocked incus)
-PETRIBOX_E2E=1 pytest -m e2e   # real Incus instances (opt-in)
+uv run --extra test pytest -m "not e2e"            # unit tests (mocked incus)
+PETRIBOX_E2E=1 uv run --extra test pytest -m e2e   # real Incus instances (opt-in)
 ```
 
 See `docs/ARCHITECTURE.md` and `docs/E2E-CHECKLIST.md`.

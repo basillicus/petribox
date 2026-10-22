@@ -43,9 +43,12 @@ def _run(
 ) -> subprocess.CompletedProcess:
     """Run `incus <args>`. Raise IncusError on non-zero exit when check=True."""
     try:
+        # Without input, give incus /dev/null: commands like `incus init` read
+        # instance YAML from a non-tty stdin and would otherwise hang forever.
         proc = subprocess.run(
             ["incus", *args],
             input=text_input,
+            stdin=subprocess.DEVNULL if text_input is None else None,
             capture_output=capture,
             text=True,
         )
@@ -72,12 +75,16 @@ def init(
     vm: bool = True,
     config: Optional[dict[str, str]] = None,
     device_overrides: Optional[list[str]] = None,
+    stream: bool = False,
 ) -> None:
     """Create (but do not start) an instance.
 
     config: map of instance config keys (limits.cpu, limits.memory,
             cloud-init.user-data, user.petribox.*, ...).
     device_overrides: e.g. ["root,size=20GiB"] to resize the root disk.
+    stream: if True, let incus write directly to the terminal so the base-image
+            download shows its progress (first run pulls ~1GB; capturing output
+            makes it look frozen).
     """
     args = ["init", image, name]
     if vm:
@@ -88,7 +95,7 @@ def init(
         args += ["-c", f"{key}={value}"]
     for override in device_overrides or []:
         args += ["-d", override]
-    _run(args)
+    _run(args, capture=not stream)
 
 
 def start(name: str) -> None:
@@ -178,6 +185,13 @@ def device_show(name: str) -> dict:
 def exec_capture(name: str, command: list[str]) -> subprocess.CompletedProcess:
     """Run a command in the instance, capturing output. Does not raise."""
     return _run(["exec", name, "--", *command], check=False)
+
+
+def exec_input(
+    name: str, command: list[str], text_input: Optional[str] = None
+) -> subprocess.CompletedProcess:
+    """Like exec_capture, but feed text_input on stdin (keeps secrets out of argv)."""
+    return _run(["exec", name, "--", *command], text_input=text_input, check=False)
 
 
 def exec_interactive(name: str, command: Optional[list[str]] = None) -> None:

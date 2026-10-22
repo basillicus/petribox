@@ -5,10 +5,10 @@ description = "Incus-backed sandboxes (dishes) for breeding, running, and migrat
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
-authors = [{ name = "David Abbasi Perez", email = "david.abbasi.ai@gmail.com" }]
 dependencies = [
     "rich>=13.0.0",
     "PyYAML>=6.0",
+    "tomli>=2.0; python_version < '3.11'",
 ]
 
 [project.scripts]

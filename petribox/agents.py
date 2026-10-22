@@ -9,6 +9,10 @@ Each agent defines:
 - packages: System packages needed
 - repo: Git repository URL (optional)
 - setup_command: Command user runs after installation to configure
+- required_env: Env vars the agent genuinely needs to run (a specific key).
+                Surfaced as a note; never blocks dish creation.
+- recommended_env: Provider keys the agent can use, any one of which is enough
+                   (e.g. multi-provider agents). Optional; never blocks creation.
 """
 
 AGENTS = {
@@ -97,10 +101,13 @@ AGENTS = {
         "description": "Minimal extensible terminal coding agent (TypeScript). No forced workflow — customise via plugins, prompt templates, and skills. Supports 20+ LLM providers.",
         "install_script": "npm install -g --ignore-scripts @earendil-works/pi-coding-agent",
         "alt_install": "curl -fsSL https://pi.dev/install.sh | sh",
-        "mise_packages": ["node@24"],
+        # fd + ripgrep are runtime deps Pi shells out to for file search.
+        "mise_packages": ["node@24", "fd", "ripgrep"],
         "packages": ["git", "curl"],
         "repo": "https://github.com/earendil-works/pi",
-        "required_env": ["ANTHROPIC_API_KEY"],
+        # Pi supports 20+ providers; any one provider key works (or /login OAuth).
+        # Optional at create time — none of these block dish creation.
+        "recommended_env": ["ANTHROPIC_API_KEY", "OPENAI_API_KEY", "OPENROUTER_API_KEY"],
         "setup_command": "pi --help",
         "setup_notes": "Set ANTHROPIC_API_KEY (or OPENAI_API_KEY) before running. Use /login for OAuth (Claude Pro, GitHub Copilot)",
     },

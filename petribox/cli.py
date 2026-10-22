@@ -70,7 +70,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--preset", choices=PRESET_NAMES, help="Configuration preset")
     p.add_argument("--agent", choices=AGENT_CHOICES, help="Install an AI agent at creation")
     p.add_argument("--env", action="append", metavar="KEY=VALUE",
-                   help="Set an environment variable (repeatable, e.g. --env OPENAI_API_KEY=sk-...)")
+                   help="Set an environment variable (repeatable, e.g. --env EDITOR=vim)")
+    p.add_argument("--secret", action="append", metavar="KEY",
+                   help="Inject KEY resolved on the host from config.toml [secrets] "
+                        "(repeatable, e.g. --secret ANTHROPIC_API_KEY)")
     p.set_defaults(func=cmd_create)
 
     # list
@@ -144,16 +147,22 @@ def build_parser() -> argparse.ArgumentParser:
     ep = env_sub.add_parser("set", help="Set an environment variable")
     ep.add_argument("name")
     ep.add_argument("key", metavar="KEY")
-    ep.add_argument("value", metavar="VALUE")
+    ep.add_argument("value", metavar="VALUE", nargs="?",
+                    help="Literal value. Omit to use --from-cmd, your config.toml "
+                         "[secrets] entry, or a hidden prompt")
+    ep.add_argument("--from-cmd", metavar="CMD",
+                    help="Host command that prints the value, e.g. 'secret-tool lookup service openai'")
     ep.set_defaults(func=cmd_env_set)
 
-    ep = env_sub.add_parser("list", help="List environment variables")
+    ep = env_sub.add_parser("list", help="List environment variables (values masked)")
     ep.add_argument("name")
+    ep.add_argument("--show", action="store_true", help="Print values unmasked")
     ep.set_defaults(func=cmd_env_list)
 
     ep = env_sub.add_parser("unset", help="Remove an environment variable")
     ep.add_argument("name")
-    ep.add_argument("key", metavar="KEY")
+    ep.add_argument("key", metavar="KEY", nargs="?")
+    ep.add_argument("--all", action="store_true", help="Remove every variable (e.g. before export)")
     ep.set_defaults(func=cmd_env_unset)
 
     def _env_dispatch(args):

@@ -4,12 +4,8 @@
 *.img
 *.raw
 
-# Pixi environment
-.pixi/envs/
-.pixi/.condapackageignore
-
-# Pixi lock file (optional - uncomment if you don't want to track it)
-# pixi.lock
+# Virtual environments
+.venv/
 
 # User data with potential secrets
 user-data.yml
@@ -45,3 +41,7 @@ __pycache__/
 build/
 dist/
 .pytest_cache/
+
+# Per-user dish configs (may hold API keys); examples/ has neutral ones
+/*-config.yaml
+.claude/settings.local.json

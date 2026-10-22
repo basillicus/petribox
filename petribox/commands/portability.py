@@ -11,14 +11,33 @@ from pathlib import Path
 
 from rich.table import Table
 
-from .. import incus
+from .. import incus, meta
 from ._common import console, fail, get_instance_or_exit
+
+
+def _warn_secrets(name: str, inst: dict) -> None:
+    """Exports carry the dish's disk, so any env file inside travels too."""
+    config = inst.get("config", {}) or {}
+    keys = config.get(f"{meta.PREFIX}env_keys", "")
+    # Dishes made by older petribox versions baked --env values into user-data.
+    legacy = "export " in config.get("cloud-init.user-data", "")
+    if keys or legacy:
+        console.print(
+            f"[yellow]Warning: this export will contain env vars / secrets"
+            f"{' (' + keys.replace(',', ', ') + ')' if keys else ''}.[/yellow]"
+        )
+        console.print(f"[dim]To strip them first: petribox up {name} && "
+                      f"petribox env unset {name} --all && petribox down {name}[/dim]")
+    if legacy:
+        console.print("[dim]Its cloud-init user-data also holds values from an older "
+                      "petribox; recreate the dish to remove those.[/dim]")
 
 
 def cmd_export(args):
     """Export a dish to a portable tarball (incus backup format)."""
-    get_instance_or_exit(args.name)
+    inst = get_instance_or_exit(args.name)
     output = args.output or f"{args.name}.tar.gz"
+    _warn_secrets(args.name, inst)
     console.print(f"[yellow]Exporting '{args.name}' -> {output}[/yellow]")
     console.print("[dim]The dish should be stopped for a consistent export.[/dim]")
     incus.export(args.name, str(output), instance_only=True)

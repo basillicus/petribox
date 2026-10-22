@@ -68,3 +68,18 @@ def test_state_parses_status_and_ip():
 def test_info_missing_returns_none():
     with mock.patch.object(incus, "_run", return_value=_proc(returncode=1)):
         assert incus.info("nope") is None
+
+
+def test_run_gives_incus_devnull_stdin_unless_input():
+    # `incus init` reads YAML from a non-tty stdin; inheriting one hangs forever.
+    import subprocess
+    from unittest import mock
+    from petribox import incus as inc
+
+    ok = subprocess.CompletedProcess([], 0, "", "")
+    with mock.patch.object(inc.subprocess, "run", return_value=ok) as run:
+        inc._run(["list"])
+        assert run.call_args.kwargs["stdin"] is subprocess.DEVNULL
+        inc._run(["exec", "x", "--", "cat"], text_input="data")
+        assert run.call_args.kwargs["stdin"] is None
+        assert run.call_args.kwargs["input"] == "data"

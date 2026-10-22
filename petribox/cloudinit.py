@@ -13,6 +13,8 @@ from typing import Optional
 
 import yaml
 
+from .secrets import SOURCE_LINE
+
 # Always present, regardless of preset/config. The Rocky cloud image is minimal:
 # tar/gzip are absent and the mise installer needs them to unpack its tarball.
 DEFAULT_PACKAGES = ["vim", "python3", "git", "curl", "wget", "tmux", "tar", "gzip", "openssh-server"]
@@ -134,9 +136,13 @@ def build_user_data(
     if agent_config and agent_config.get("install_script"):
         runcmd.append(as_user(agent_config["install_script"]))
 
-    environment = config.get("environment", {})
-    for key, value in environment.items():
-        runcmd.append(as_user(f'echo \'export {key}="{value}"\' >> ~/{rc_file}'))
+    # Env vars and secrets are never put in user-data (it is stored in the
+    # instance config and travels with exports); petribox pushes them to this
+    # file after boot. Sourcing it is harmless when it doesn't exist.
+    runcmd.append(as_user(
+        f"grep -qF {shlex.quote(SOURCE_LINE)} ~/{rc_file} 2>/dev/null || "
+        f"echo {shlex.quote(SOURCE_LINE)} >> ~/{rc_file}"
+    ))
 
     for cmd in config.get("runcmd", []):
         runcmd.append(cmd if isinstance(cmd, str) else " ".join(cmd))

@@ -33,4 +33,4 @@
 1. Finish BIOS update and ensure VT-x is enabled.
 2. Check if `/dev/kvm` exists.
 3. Switch to the `refactor-installation-privileges` branch.
-4. Run `pixi run sandbox create --tui` to test the new logic.
+4. Run `petribox create --tui` to test the new logic.

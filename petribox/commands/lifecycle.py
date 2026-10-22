@@ -9,7 +9,7 @@ from pathlib import Path
 
 from rich.table import Table
 
-from .. import cloudinit, incus, meta, presets
+from .. import cloudinit, incus, meta, presets, secrets
 from ..config_loader import load_config
 from ._common import (
     console,
@@ -72,12 +72,22 @@ def cmd_create(args):
             "Use 'petribox connect' (incus exec) or add a key with --ssh-key."
         )
 
-    # --env KEY=VALUE flags: merge into config.environment before cloud-init build
+    # Env vars and secrets are written into the dish after boot, never into
+    # cloud-init user-data. Resolve them now so a failing secret command (or a
+    # master-password prompt) happens before the slow part.
+    environment: dict[str, str] = {
+        str(k): str(v) for k, v in (config.pop("environment", None) or {}).items()
+    }
     for kv in (getattr(args, "env", None) or []):
         key, _, value = kv.partition("=")
-        if not key:
+        if not secrets.valid_key(key):
             fail(f"Invalid --env value '{kv}', expected KEY=VALUE")
-        config.setdefault("environment", {})[key] = value
+        environment[key] = value
+    for key in (getattr(args, "secret", None) or []):
+        try:
+            environment[key] = secrets.resolve(key)
+        except secrets.SecretError as exc:
+            fail(str(exc))
 
     agent_config = None
     if getattr(args, "agent", None):
@@ -85,13 +95,21 @@ def cmd_create(args):
 
         agent_config = get_agent_config(args.agent)
         console.print(f"[dim]Agent: {agent_config['name']}[/dim]")
-        # Warn about any env vars the agent requires
+        # Note any env vars the agent uses. These never block creation — the
+        # dish is created either way and keys can be added later.
         for req_key in agent_config.get("required_env", []):
-            if req_key not in config.get("environment", {}):
+            if req_key not in environment:
                 console.print(
                     f"[yellow]  Note: {agent_config['name']} needs {req_key} — "
-                    f"set it with: petribox env set {args.name} {req_key} <value>[/yellow]"
+                    f"set it now or later: petribox env set {args.name} {req_key}[/yellow]"
                 )
+        recommended = agent_config.get("recommended_env", [])
+        if recommended and not any(k in environment for k in recommended):
+            console.print(
+                f"[yellow]  Note: {agent_config['name']} works with any one of "
+                f"{', '.join(recommended)} (or its own /login) — optional, "
+                f"set later: petribox env set {args.name} <KEY>[/yellow]"
+            )
 
     user_data = cloudinit.build_user_data(
         hostname=name,
@@ -117,6 +135,10 @@ def cmd_create(args):
     }
 
     console.print(f"[green]=== Creating dish: {name} ===[/green]")
+    console.print(
+        "[dim]Defining instance (first run downloads the base image, ~1GB — "
+        "progress below)...[/dim]"
+    )
     if is_vm and not (shutil.which("mkisofs") or shutil.which("genisoimage")):
         # Incus builds the agent config CDROM with these; checking now avoids
         # leaving a defined-but-unbootable instance behind.
@@ -129,6 +151,7 @@ def cmd_create(args):
         vm=is_vm,
         config=instance_config,
         device_overrides=[f"root,size={disk}GiB"],
+        stream=True,
     )
     console.print(f"[green]✓ Instance defined[/green] ({'VM' if is_vm else 'container'}, {ram}MB RAM, {cpus} CPU, {disk}GB disk)")
 
@@ -155,7 +178,12 @@ def cmd_create(args):
     if vm_ip:
         console.print(f"[green]✓ Dish ready at {vm_ip}[/green]")
     else:
-        console.print("[yellow]Dish started; network not up yet. Check: petribox status " + name + "[/yellow]")
+        console.print("[yellow]Dish started but has no IPv4 yet. Check: petribox status " + name + "[/yellow]")
+        console.print(
+            "[yellow]If it stays without one, cloud-init can't install anything. The usual cause "
+            "is a host firewall (ufw/firewalld) dropping DHCP on incusbr0: "
+            "see step 4 of 'petribox initial-setup'.[/yellow]"
+        )
 
     if args.dotfiles:
         from ..dotfiles import apply_dotfiles
@@ -166,6 +194,18 @@ def cmd_create(args):
             console.print("[green]✓ Dotfiles applied[/green]")
         except Exception as exc:  # noqa: BLE001 - surface but don't fail create
             console.print(f"[red]Failed to apply dotfiles: {exc}[/red]")
+
+    if environment:
+        console.print("[dim]Writing env vars / secrets...[/dim]")
+        try:
+            if not secrets.wait_for_user(name, args.user):
+                raise secrets.SecretError(f"user '{args.user}' not created yet")
+            secrets.write_env(name, args.user, environment,
+                              ".zshrc" if args.shell == "zsh" else ".bashrc")
+            console.print(f"[green]✓ {', '.join(sorted(environment))} set[/green]")
+        except secrets.SecretError as exc:
+            console.print(f"[red]Could not write env vars: {exc}[/red]")
+            console.print(f"[dim]Retry: petribox env set {name} <KEY>[/dim]")
 
     console.print()
     console.print(f"[green]Dish '{name}' is ready![/green]")

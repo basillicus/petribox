@@ -1,0 +1,19 @@
+# Per-user petribox settings. Copy to ~/.config/petribox/config.toml
+# (or $XDG_CONFIG_HOME/petribox/config.toml). Never commit the real file.
+#
+# [secrets] maps an env var name to a host command that prints its value.
+# petribox runs the command on the host only when you ask for that key
+# (`create --secret KEY`, `env set <dish> KEY`) and pushes just the value
+# into the dish. The dish never gets access to the secret store itself.
+
+[secrets]
+# KeePassXC (Settings > Secret Service Integration), GNOME Keyring, KWallet:
+#   store with: secret-tool store --label "OpenAI" service openai
+OPENAI_API_KEY = { cmd = "secret-tool lookup service openai" }
+
+# KeePassXC database directly (prompts for the master password):
+# ANTHROPIC_API_KEY = { cmd = "keepassxc-cli show -q -a password ~/Passwords.kdbx 'AI/Anthropic'" }
+
+# pass / 1Password / Bitwarden work the same way:
+# OPENROUTER_API_KEY = { cmd = "pass show api/openrouter" }
+# GITHUB_TOKEN       = { cmd = "op read op://Private/GitHub/token" }

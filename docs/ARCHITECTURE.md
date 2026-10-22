@@ -38,12 +38,14 @@ petribox/
 ├── agents.py              # AGENTS catalogue
 ├── dotfiles.py            # dotfile presets + apply via incus exec/file push
 ├── config_loader.py       # load YAML configs
+├── secrets.py             # host-side secret resolution + dish env file (0600)
 └── commands/
     ├── _common.py         # console, error/exit, resource resolution, device naming, wait
     ├── lifecycle.py       # create, list, status, up, down, delete, config
     ├── access.py          # connect (incus exec), console
     ├── mounts.py          # share host dirs via disk devices (virtiofs)
     ├── forward.py         # port forwarding via proxy devices
+    ├── env.py             # env set/list/unset (values via stdin, masked list)
     ├── install.py         # install agents / mise packages into a running dish
     ├── portability.py     # export / import / move / remote-*
     ├── comms.py           # A2A/MCP comms-readiness

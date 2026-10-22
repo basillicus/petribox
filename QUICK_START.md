@@ -33,11 +33,13 @@ shell only. Repeat it in each new terminal until your next login.
 ## 2. One-time setup
 
 ```bash
-# Install pixi if needed
-curl -fsSL https://pixi.sh/install.sh | sh
+# Install petribox as a user-wide command (puts it in ~/.local/bin)
+# Get uv: https://docs.astral.sh/uv/  (or use: pipx install git+...)
+uv tool install git+https://github.com/<owner>/petribox
+# from a local checkout: uv tool install .   (upgrade later: uv tool upgrade petribox)
 
 # Initialise Incus + verify prerequisites
-pixi run petribox initial-setup
+petribox initial-setup
 ```
 
 This runs `incus admin init --minimal` (storage pool + `incusbr0` network),
@@ -47,11 +49,11 @@ checks your group membership, and verifies the image remote.
 
 ```bash
 # Interactive
-pixi run petribox create --tui
+petribox create --tui
 
 # Or directly
-pixi run petribox create lab --preset dev               # VM
-pixi run petribox create fast --container --preset minimal   # container
+petribox create lab --preset dev               # VM
+petribox create fast --container --preset minimal   # container
 ```
 
 First boot runs cloud-init (1–3 min); later boots take seconds.
@@ -59,21 +61,21 @@ First boot runs cloud-init (1–3 min); later boots take seconds.
 ## 4. Use it
 
 ```bash
-pixi run petribox connect lab          # shell via incus exec (no SSH needed)
-pixi run petribox list                 # all dishes
-pixi run petribox status lab
-pixi run petribox mount lab ~/data /data
-pixi run petribox port-forward lab 8888
-pixi run petribox down lab             # stop when idle
-pixi run petribox delete lab           # remove
+petribox connect lab          # shell via incus exec (no SSH needed)
+petribox list                 # all dishes
+petribox status lab
+petribox mount lab ~/data /data
+petribox port-forward lab 8888
+petribox down lab             # stop when idle
+petribox delete lab           # remove
 ```
 
 ## 5. Carry it anywhere
 
 ```bash
-pixi run petribox down lab
-pixi run petribox export lab -o lab.tar.gz   # move this file to another host
-pixi run petribox import lab.tar.gz
+petribox down lab
+petribox export lab -o lab.tar.gz   # move this file to another host
+petribox import lab.tar.gz
 ```
 
 ## Presets

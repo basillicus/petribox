@@ -11,6 +11,7 @@ from rich.panel import Panel
 from rich.prompt import Confirm, IntPrompt, Prompt
 from rich.table import Table
 
+from . import secrets
 from .agents import AGENTS
 from .presets import PRESETS
 
@@ -111,29 +112,53 @@ def run_create_tui():
 
     # ── 5. Secrets / API keys ───────────────────────────────────────────────
     console.print("\n[cyan]5. Secrets & API keys (optional)[/cyan]\n")
-    console.print("[dim]These are written to the user's shell rc inside the dish.[/dim]\n")
+    console.print(
+        "[dim]Written to ~/.config/petribox/env (mode 0600) inside the dish. "
+        "The agent can read them: prefer a separate, spend-limited key per dish.[/dim]\n"
+    )
     env_vars: dict[str, str] = {}
+    from_store: list[str] = []
+    try:
+        sources = secrets.configured_sources()
+    except secrets.SecretError as exc:
+        console.print(f"[yellow]  Ignoring secret config: {exc}[/yellow]")
+        sources = {}
 
-    # Warn about keys the chosen agent requires
+    # Note keys the chosen agent uses. These are optional — you can set them
+    # now, or later with `petribox env set`; either way creation continues.
     if agent:
+        agent_name = AGENTS[agent]["name"]
         required = AGENTS[agent].get("required_env", [])
+        recommended = AGENTS[agent].get("recommended_env", [])
         if required:
             console.print(
-                f"[yellow]  {AGENTS[agent]['name']} needs: {', '.join(required)}[/yellow]\n"
+                f"[yellow]  {agent_name} needs: {', '.join(required)}[/yellow] "
+                "[dim](optional now — can be set later)[/dim]\n"
+            )
+        if recommended:
+            console.print(
+                f"[yellow]  {agent_name} works with any one of: "
+                f"{', '.join(recommended)}[/yellow] "
+                "[dim](optional — or use the agent's own /login)[/dim]\n"
             )
 
     if Confirm.ask("Add API keys / secrets?", default=bool(agent)):
         # Offer common keys
         for env_key, label in COMMON_SECRETS:
-            val = Prompt.ask(f"  {env_key} [{label}]", default="")
+            if env_key in sources:
+                if Confirm.ask(f"  {env_key} [{label}] from your secret store?", default=False):
+                    from_store.append(env_key)
+                continue
+            val = Prompt.ask(f"  {env_key} [{label}] (hidden, blank = skip)",
+                             default="", password=True, show_default=False)
             if val:
                 env_vars[env_key] = val
 
         # Free-form extras
         while Confirm.ask("  Add another variable?", default=False):
             extra_key = Prompt.ask("    KEY")
-            extra_val = Prompt.ask("    VALUE")
-            if extra_key:
+            extra_val = Prompt.ask("    VALUE (hidden)", password=True)
+            if secrets.valid_key(extra_key):
                 env_vars[extra_key] = extra_val
 
     # ── 6. Shared directories ───────────────────────────────────────────────
@@ -158,8 +183,8 @@ def run_create_tui():
     console.print(f"  Preset:   {preset_choice}")
     console.print(f"  Dotfiles: {dotfiles_source or 'none'}")
     console.print(f"  Agent:    {agent or 'none'}")
-    if env_vars:
-        console.print(f"  Secrets:  {', '.join(env_vars.keys())}")
+    if env_vars or from_store:
+        console.print(f"  Secrets:  {', '.join([*env_vars, *from_store])}")
     if mounts:
         console.print(f"  Mounts:   {', '.join(mounts)}")
     console.print()
@@ -175,10 +200,10 @@ def run_create_tui():
         template: dict = {}
         if preset_choice != "custom":
             template["# preset"] = preset_choice  # type: ignore[assignment]
-        if env_vars:
-            template["environment"] = {k: "<redacted>" for k in env_vars}
+        if env_vars or from_store:
             console.print(
-                "[yellow]  Note: API key values are redacted in the saved template.[/yellow]"
+                "[yellow]  Note: secrets are not saved in templates; pass them with "
+                "--secret KEY (from config.toml) when creating.[/yellow]"
             )
         Path(out_path).write_text(
             "# petribox config — use with: petribox create <name> --config " + out_path + "\n"
@@ -203,6 +228,7 @@ def run_create_tui():
         preset=preset_choice if preset_choice != "custom" else None,
         agent=agent,
         env=env_list,
+        secret=from_store or None,
         verbose=False,
         tui=False,
     )
