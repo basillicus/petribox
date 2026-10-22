@@ -1,0 +1,12 @@
+# Kali Linux VM from Kali's official QEMU image. Import it once:
+#   7z/bsdtar -xf kali-linux-YYYY.N-qemu-amd64.7z   (from cdimage.kali.org/current/)
+#   petribox import-image kali-linux-YYYY.N-qemu-amd64.qcow2 kali-qemu
+# The image has no Incus agent, so the first boot needs one manual step:
+# see the README section "Kali as a VM".
+description = "Kali Linux VM (official QEMU image)"
+image = "kali-qemu"
+user = "kali"
+memory = "8GiB"
+disk = "82GiB"     # the image's virtual disk is 80.1 GiB
+# The image boots with legacy BIOS, not UEFI.
+config = { "security.csm" = "true", "security.secureboot" = "false" }

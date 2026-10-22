@@ -1,0 +1,2 @@
+description = "Debian 13 VM"
+image = "images:debian/13"

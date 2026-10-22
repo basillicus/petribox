@@ -1,0 +1,3 @@
+description = "Kali Linux container (needs root entries in /etc/subuid and /etc/subgid)"
+image = "images:kali"
+vm = false

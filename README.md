@@ -1,278 +1,157 @@
-# Petribox
+# petribox
 
-Opinionated convenience on top of [Incus](https://linuxcontainers.org/incus/) for spinning up Linux environments ready to run AI agents.
+Sandboxes ("dishes") on [Incus](https://linuxcontainers.org/incus/), built
+from recipes. A recipe is a plain Incus image plus a provisioning script.
+petribox does four things on top of Incus:
 
-If you know Incus well, petribox is mostly convenience. Its value is that it encodes the tribal knowledge — cloud-init YAML, mise setup, Rocky-specific quirks, DHCPv4 network config, which packages the Rocky cloud image is missing — into named presets. You get a working environment with one command instead of writing 60 lines of YAML and hitting three non-obvious bugs.
+1. **build**: image → provisioned base instance → `clean` snapshot
+2. **new**: copy that snapshot into a dish (optionally ephemeral)
+3. **secrets**: resolve values on the host, hand them in over stdin
+4. **dotfiles**: apply your [chezmoi](https://www.chezmoi.io/) repo in each new dish
 
-```bash
-petribox create lab --preset dev          # VM, 4 GB RAM, mise + node@24
-petribox create fast --container --preset minimal   # container, boots in seconds
-petribox connect lab                      # shell as the configured user, not root
-```
-
-vs the raw Incus equivalent: write `user-data.yaml` + `network-config.yaml`, know that Rocky needs `agent:config` added before start, know that `tar`/`gzip` and `openssh-server` are missing from the cloud image, know to run mise as the user not root, manually poll for cloud-init, then `su -` to your user because `incus exec` gives you root.
-
-**What petribox is not:** a security sandbox, a policy engine, or an agent framework. It is a provisioning layer.
-
-## What it does
-
-- **Presets** — `minimal` / `dev` / `ai-researcher` / `agentic` encode opinionated defaults for RAM, CPU, disk, packages, and mise toolchains.
-- **cloud-init generation** — builds the user-data and network-config YAML correctly for Rocky Linux VMs (the gotchas are handled for you).
-- **User setup** — `--user alice` creates the user, wires SSH keys, stores it, and `petribox connect` drops you in as that user.
-- **Portability** — `export`/`import`/`move` to migrate a dish to another machine or a remote Incus host.
-- **Mounts** — `petribox mount` attaches a host directory via virtiofs (VMs) or bind mount (containers). Requires `virtiofsd` installed on the host for VMs.
-- **Port-forwards** — Incus proxy devices, persistent across reboots.
-- **Agent installs** — `--agent hermes` wires an agent's install script and mise packages into cloud-init.
-
-## Requirements
-
-Linux, [Incus](https://github.com/lxc/incus) installed, user in the `incus` or `incus-admin` group. Python 3.10+ (uv installs one if needed).
-
-```bash
-petribox initial-setup   # checks and explains anything missing
-```
-
-VMs also need host tools that containers don't:
-
-| Distro | VM packages | Notes |
-|---|---|---|
-| Debian/Ubuntu | `sudo apt install -y virtiofsd genisoimage` | |
-| Fedora | `sudo dnf install -y virtiofsd genisoimage` | |
-| Arch | `sudo pacman -S incus cdrtools virtiofsd` | Start the daemon: `sudo systemctl enable --now incus.socket incus.service`. `virtiofsd` lives at `/usr/lib/virtiofsd`. |
-
-- `virtiofsd` is used for VM mounts.
-- `mkisofs`/`genisoimage` is used to build the VM agent config CDROM. Without it, VMs fail to start.
-
-## Install
-
-```bash
-uv tool install git+https://github.com/<owner>/petribox   # or: pipx install git+...
-# from a local checkout: uv tool install .
-uv tool upgrade petribox                                  # later
-```
-
-This puts `petribox` in `~/.local/bin` with its own isolated environment.
+Everything else is plain `incus` (see [the cheat sheet](#everything-else-is-incus)).
+Linux hosts only, since that's where Incus runs. On macOS or Windows use
+[Vagrant](https://developer.hashicorp.com/vagrant) or [Lima](https://lima-vm.io/).
 
 ## Quick start
 
 ```bash
-petribox initial-setup        # one-time
-petribox create lab --preset dev
-petribox connect lab
+uv tool install .            # or: pipx install .
+petribox recipes             # what can be built
+petribox build rocky         # once per recipe; takes a few minutes
+petribox new lab --from rocky
+petribox shell lab
 ```
 
-First boot (cloud-init) takes 1–3 minutes. Subsequent boots are seconds.
+Throwaway dish that deletes itself when it stops:
+
+```bash
+petribox new try1 --from debian --ephemeral
+incus stop try1              # gone
+```
 
 ## Commands
 
-| Command | Description |
+| Command | What it does |
 |---|---|
-| `create <name> [opts]` / `create --tui` | Create a dish (VM by default, `--container` for lightweight) |
-| `list` / `status <name>` | List dishes / show one in detail |
-| `up <name>` / `down <name>` / `delete <name>` | Start / stop / delete |
-| `connect <name> [cmd]` | Shell (or run a command) via `incus exec` |
-| `connect <name> --gui` | Shell over `ssh -Y` with X11 forwarding for GUI apps (`ase gui`, interactive matplotlib) |
-| `console <name>` | Attach to the instance console |
-| `mount <name> <host> <vm>` / `umount <name> <vm>` | Share / unshare a host directory |
-| `port-forward <name> <port> [--local-port P]` | Forward a dish port to the host |
-| `port-forward-list` / `port-forward-stop <name> <port>` | Manage forwards |
-| `install <name> --agent X` / `--mise-package P` | Install into a running dish |
-| `env set <name> KEY [VALUE] [--from-cmd CMD]` / `env list` / `env unset [KEY\|--all]` | Manage env vars / API keys in a dish |
-| `export <name> [-o file]` / `import <file> [name]` | Backup / restore |
-| `move <name> <remote[:name]> [--copy]` | Migrate to a remote Incus host |
-| `remote-add <name> <url>` / `remote-list` | Manage remote Incus servers |
-| `comms <name> [--protocol a2a\|mcp] [--expose] [--runtime CMD]` | Mark a dish comms-ready |
-| `ssh-config` | Refresh `~/.ssh/petribox_config` with running dishes; adds `Include` to `~/.ssh/config` once |
-| `initial-setup [-y]` | Check / set up Incus prerequisites |
+| `petribox recipes` | List recipes and whether their base is built |
+| `petribox build RECIPE [--rebuild]` | Create `pb-RECIPE` from the image, run `_common.sh` + `provision.sh` as root, stop it, snapshot `clean` |
+| `petribox new NAME --from RECIPE [--ephemeral] [--secret KEY]... [--cpus N] [--memory 8GiB] [--no-dotfiles]` | `incus copy pb-RECIPE/clean NAME`, start, hand in secrets, apply dotfiles |
+| `petribox shell NAME [CMD...]` | Login shell (or one command) as the dish user |
+| `petribox secret NAME` / `NAME KEY...` / `NAME --unset KEY` | List (masked), set or remove a dish's secrets |
 
-### Create options
+## Recipes
 
-`--container`, `--ram MB`, `--cpus N`, `--disk GB`, `--user NAME` (default `petri`),
-`--ssh-key PATH`, `--password`, `--image` (default `images:rockylinux/9/cloud`),
-`--dotfiles SRC`, `--mount HOST:VM` (repeatable), `--config FILE`,
-`--shell bash|zsh`, `--preset NAME`, `--agent NAME`, `--env KEY=VALUE`,
-`--secret KEY` (both repeatable).
-
-## API keys and secrets
-
-The agent in a dish can read every key you give that dish. Petribox can't stop
-that, so it focuses on three things: keys never leak outside the dish, each dish
-only gets the keys you name, and keys are never stored on the host by petribox.
-
-- **Use a separate key per dish, with a spending limit** (OpenAI, Anthropic and
-  OpenRouter all support this). A leaked key then costs little and is easy to revoke.
-- Values are looked up **on the host** and written to `~/.config/petribox/env`
-  (mode 0600) inside the dish over stdin. They never go into cloud-init
-  user-data, `incus config`, or host process arguments.
-- The dish never gets access to your password manager. Don't forward its socket
-  into a dish: that hands the agent the whole vault.
-
-Keep secret sources in `~/.config/petribox/config.toml`. Each entry is a host
-command that prints the value (see `examples/config.toml.example`):
+A recipe is a directory with `recipe.toml` and an optional `provision.sh`:
 
 ```toml
+# ~/.config/petribox/recipes/webshop/recipe.toml
+description = "Rocky 9 with Node for the Webshop project"
+image = "images:rockylinux/9"   # any Incus image, or a local alias
+vm = true                       # false = system container
+cpus = 2
+memory = "4GiB"
+disk = "20GiB"
+user = "petri"                  # the dish user, created if missing
+```
+
+```bash
+# ~/.config/petribox/recipes/webshop/provision.sh  (runs as root)
+pkg_install nodejs npm
+as_user 'npm config set prefix ~/.local'
+```
+
+`provision.sh` runs after the built-in [`_common.sh`](petribox/recipes/_common.sh),
+which waits for the network, creates the user with passwordless sudo, and
+provides `pkg_update`, `pkg_install` (dnf, apt or pacman) and `as_user`.
+Recipes in `~/.config/petribox/recipes/` override built-ins of the same name.
+
+Built-in recipes: `rocky`, `debian`, `arch`, `kali` (VM, from Kali's own
+QEMU image; see [Kali](#kali-as-a-vm)), `kali-container`, `omarchy`
+(untested, see its `recipe.toml`).
+
+No cloud-init: the plain images run `incus exec` from the start, and a base is
+built once and copied, so nothing needs to happen on first boot.
+
+### Kali as a VM
+
+Incus's image server has Kali only as a container. For a VM, use Kali's
+official QEMU image:
+
+```bash
+# from https://cdimage.kali.org/current/ : kali-linux-YYYY.N-qemu-amd64.7z (check SHA256SUMS)
+bsdtar -xf kali-linux-YYYY.N-qemu-amd64.7z
+petribox import-image kali-linux-YYYY.N-qemu-amd64.qcow2 kali-qemu
+petribox build kali          # stops at the agent; see below
+```
+
+The image boots with legacy BIOS (the recipe sets `security.csm=true`) and
+ships neither the Incus agent nor a running SSH server, so the build stops
+and asks for the one manual step below. The `clean` snapshot keeps the agent,
+so this happens once per base, not per dish.
+
+### Images without an agent
+
+`import-image` works for any distro's VM disk image, but `incus exec` needs
+the Incus agent inside. Install it once from the graphical console:
+
+```bash
+incus console pb-kali --type=vga    # log in (Kali: kali / kali), open a terminal
+sudo mount -t 9p config /mnt        # if that fails: sudo mount /dev/disk/by-label/incus-agent /mnt
+cd /mnt && sudo ./install.sh && cd / && sudo umount /mnt
+sudo systemctl start incus-agent
+```
+
+Then finish the build from the host: `petribox build kali --resume`.
+
+## Secrets and dotfiles
+
+```toml
+# ~/.config/petribox/config.toml
 [secrets]
-OPENAI_API_KEY    = { cmd = "secret-tool lookup service openai" }   # KeePassXC / GNOME Keyring / KWallet
-ANTHROPIC_API_KEY = { cmd = "keepassxc-cli show -q -a password ~/Passwords.kdbx 'AI/Anthropic'" }
+OPENROUTER_API_KEY = { cmd = "secret-tool lookup service openrouter" }
+
+[dotfiles]
+repo = "https://github.com/alice/dotfiles.git"
 ```
+
+`--secret KEY` runs the command on the host (or asks with a hidden prompt if
+there is none), and writes `export KEY=...` to `~/.config/petribox/env`
+(mode 0600) in the dish over the stdin of `incus exec`. The shell rc sources
+it. Values never appear in host argv or in the instance config, so copies of
+the *base* and `incus config show` never contain them; an export of the dish
+itself does, because the file is on its disk.
+
+Think twice before handing a model API key to an agent at all: it can read
+and send anything you give it. A proxy on the host that adds the key (for
+example [LiteLLM](https://github.com/BerriAI/litellm) with a virtual key per
+dish) keeps the real key out of the dish.
+
+## Everything else is Incus
+
+| Task | Command |
+|---|---|
+| List, start, stop, delete | `incus list`, `incus start lab`, `incus stop lab`, `incus delete -f lab` |
+| Snapshot and roll back | `incus snapshot create lab before-upgrade`, `incus snapshot restore lab before-upgrade` |
+| Share a host folder | `incus config device add lab src disk source=$PWD path=/home/petri/src shift=true` |
+| Forward a port to the host | `incus config device add lab web proxy listen=tcp:127.0.0.1:8080 connect=tcp:127.0.0.1:8080` |
+| Graphical console (VMs) | `incus console lab --type=vga` (needs `remote-viewer`: `sudo pacman -S virt-viewer` or your distro's virt-viewer) |
+| Export, import | `incus export lab lab.tar.gz`, `incus import lab.tar.gz` |
+| Move to another Incus host | `incus remote add other https://other.example.org:8443`, `incus move lab other:` |
+| Resize | `incus config set lab limits.cpu=4 limits.memory=8GiB` |
+
+## Host setup notes
+
+- **ufw** blocks DHCP on the Incus bridge, so instances get no IPv4. Allow it:
+  `sudo ufw allow in on incusbr0 && sudo ufw route allow in on incusbr0 && sudo ufw route allow out on incusbr0`
+- **Containers** need subordinate ids for root. If `incus launch` says
+  "System doesn't have a functional idmap setup":
+  `echo 'root:1000000:1000000000' | sudo tee -a /etc/subuid /etc/subgid && sudo systemctl restart incus`
+- **Docker** on the same host can drop forwarded bridge traffic; see the Incus
+  docs on "Prevent connectivity issues with Incus and Docker".
+
+## Tests
 
 ```bash
-petribox create lab --agent pi --secret ANTHROPIC_API_KEY   # resolved from config.toml
-petribox env set lab OPENAI_API_KEY                          # config.toml source, else hidden prompt
-petribox env set lab HF_TOKEN --from-cmd "pass show api/hf"  # one-off command
-petribox env list lab                                        # values masked (--show to reveal)
-petribox env unset lab --all                                 # e.g. before export
+uv run --with pytest pytest -q
 ```
-
-`petribox export` warns when a dish still holds secrets, since the export
-contains its disk.
-
-New to this? [docs/TUTORIAL-credentials.md](docs/TUTORIAL-credentials.md) walks
-through a full run (dish, token, private repo clone, cleanup) and explains what
-the agent can and cannot reach at each step.
-
-## Presets
-
-| Preset | RAM | CPUs | Disk | Extras |
-|---|---|---|---|---|
-| `minimal` | 2 GB | 1 | 15 GB | base packages only |
-| `dev` | 4 GB | 2 | 25 GB | gcc, make, `node@24` via mise |
-| `ai-researcher` | 8 GB | 4 | 40 GB | `python@3.12` via mise, jupyterlab, numpy, pandas, matplotlib, scikit-learn |
-| `agentic` | 8 GB | 4 | 50 GB | docker, `python@3.12` + `node@24` via mise, langchain, langgraph, pydantic, httpx |
-
-Base packages on every dish: vim, python3, git, curl, wget, tmux, mise.
-
-Override any resource: `--ram 8192 --cpus 4 --disk 50`.
-
-## Config files
-
-```yaml
-# my-config.yaml
-packages: [vim-enhanced, python3-pip]
-mise_packages: [node@20, python@3.12]
-pip_packages: [jupyterlab, numpy]
-environment: { EDITOR: vim }
-runcmd: ["echo setup complete"]
-```
-```bash
-petribox create mybox --config my-config.yaml
-```
-
-## Portability
-
-```bash
-petribox down lab
-petribox export lab -o lab.tar.gz
-# copy lab.tar.gz to another machine
-petribox import lab.tar.gz && petribox up lab
-
-# or migrate live to a remote Incus host
-petribox remote-add cloud https://incus.example.com:8443
-petribox move lab cloud
-```
-
-## Agent communication (preview)
-
-`petribox comms <name>` records a protocol and port in the instance metadata and optionally opens it. Dishes reach each other by Incus DNS name (`<name>.incus`). Full A2A/MCP protocol support is on the roadmap — see `docs/ROADMAP.md`.
-
-## Development
-
-```bash
-uv run --extra test pytest -m "not e2e"            # unit tests (mocked incus)
-PETRIBOX_E2E=1 uv run --extra test pytest -m e2e   # real Incus instances (opt-in)
-```
-
-See `docs/ARCHITECTURE.md` and `docs/E2E-CHECKLIST.md`.
-
-## License
-
-MIT
-
----
-
-## Appendix: which agent should I use?
-
-A quick guide for picking the right agent. Every agent below installs with `petribox create <name> --agent <key>`.
-
-### At a glance
-
-| Agent | Key | Language | Binary size | RAM footprint | Primary use |
-|---|---|---|---|---|---|
-| Hermes | `hermes` | Python + Node | Medium | ~150 MB | Autonomous task execution |
-| OpenClaw | `openclaw` | Node | Medium | ~100 MB | Life automation via chat apps |
-| NemoClaw | `nemoclaw` | Node (NVIDIA) | Large | ~200 MB + Docker | Secure OpenClaw with policy controls |
-| NullClaw | `nullclaw` | Zig | **678 KB** | ~1 MB | Minimal edge/embedded AI |
-| PicoClaw | `picoclaw` | Go | ~10 MB | ~10 MB | Edge + chat integrations + web UI |
-| Loong | `loong` | Rust | Medium | ~30 MB | Building custom vertical agents |
-| ZeroClaw | `zeroclaw` | Rust | Small | ~5 MB | Provider-agnostic personal assistant |
-| Pi | `pi` | TypeScript | Medium | ~80 MB | Interactive terminal coding |
-
----
-
-### Hermes
-**Autonomous task execution** built by NousResearch. Given a goal, Hermes breaks it down, executes steps, and reports results. Closest to a "do this for me" agent — it acts on your behalf rather than waiting for turn-by-turn input.
-
-**Use Hermes if:** you want to hand off a multi-step task and come back to a result.
-
----
-
-### OpenClaw
-**Life automation via chat.** Connects to WhatsApp, Telegram, and other messaging apps and handles email, calendar, flight check-ins, and similar daily tasks. It is not a coding agent — it is a personal-life automation layer.
-
-**Use OpenClaw if:** you want an agent running in a dish that manages your inbox and calendar without you opening a laptop.
-
----
-
-### NemoClaw (NVIDIA)
-**OpenClaw with enterprise security.** Wraps OpenClaw with network policy enforcement (agents must request permission before making network calls), multi-provider inference routing, and an operator approval workflow. Adds Docker as a dependency and requires an NVIDIA API key.
-
-**Use NemoClaw instead of OpenClaw if:** you are deploying in a shared or regulated environment and need to control what the agent is allowed to reach on the network.
-
-**Skip NemoClaw if:** you are doing local personal use — the governance overhead is not worth it.
-
----
-
-### NullClaw
-**The smallest possible AI agent.** A 678 KB static Zig binary with zero runtime dependencies. Boots in under 8 ms, uses about 1 MB of RAM. No web UI, no chat integrations — just the agent binary.
-
-**Use NullClaw if:** you are targeting genuinely constrained hardware, you want zero moving parts, or you philosophically prefer the smallest footprint possible.
-
-**NullClaw vs PicoClaw:** NullClaw is smaller and has zero deps; PicoClaw trades some size for a web UI, 16 chat integrations, and multi-architecture pre-built binaries. Pick NullClaw for raw minimalism, PicoClaw for minimalism-with-UX.
-
----
-
-### PicoClaw (Sipeed)
-**Lightweight Go binary with a web UI and chat integrations.** ~10 MB, <1 second startup, runs on Raspberry Pi, Android, RISC-V. Supports 16+ messaging platforms (Telegram, Discord, Slack, WeChat, DingTalk, etc.) and 10+ LLM providers. Has native MCP support.
-
-**Use PicoClaw if:** you want to deploy an agent on a Raspberry Pi or similar hardware and need it to respond via Telegram or another chat platform, not just the terminal.
-
-**PicoClaw vs NullClaw:** PicoClaw is larger but ready to integrate with external services out of the box. NullClaw is a bare binary with no integrations.
-
----
-
-### Loong
-**A framework for building your own vertical agents.** Not a ready-made assistant — it is infrastructure. Comes with 42+ LLM/tool providers and 25+ channels (Slack, Lark, Discord, DingTalk) pre-wired. You configure which providers and channels you want, then write the agent logic on top.
-
-**Use Loong if:** you want to build a custom agent that routes through specific providers and channels rather than running someone else's agent as-is. Think of it as the backbone, not the product.
-
-**Skip Loong if:** you just want to install and run an agent without writing Rust.
-
----
-
-### ZeroClaw
-**Provider-agnostic personal assistant in Rust.** Positions itself as "99% less memory than OpenClaw" (≈5 MB RAM). Works with any OpenRouter-compatible provider — you supply the API key and the provider name.
-
-**Use ZeroClaw if:** you want a low-memory personal assistant without committing to OpenAI or Anthropic specifically, and you are comfortable using a Rust-native binary.
-
-**ZeroClaw vs NullClaw:** ZeroClaw is provider-agnostic and has a real CLI UX; NullClaw is even smaller but more opinionated about its interface.
-
----
-
-### Pi (earendil-works)
-**A minimal, extensible terminal coding agent.** Unlike Hermes (autonomous task runner) or OpenClaw (life automation), Pi is specifically a *coding* assistant that lives in your terminal. Its differentiator is that it imposes no workflow — you can write TypeScript plugins, custom prompts, and skills to shape exactly how it behaves. Supports 20+ LLM providers with a unified interface.
-
-**Use Pi if:** you want an AI pair-programmer in the terminal that you can customise deeply, and you do not want it to silently make decisions about how to structure the interaction.
-
-**Pi vs Hermes:** Hermes is autonomous (it acts and reports back); Pi is interactive (you stay in the loop). Pi is more like a smart terminal co-pilot. Hermes is more like delegating the task entirely.
-
-**Pi vs Claude Code / Cursor:** Pi is provider-agnostic and fully open to extension. Claude Code and Cursor are polished products with opinionated UX. Pi is the right choice if you want to own the workflow.

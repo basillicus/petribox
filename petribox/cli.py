@@ -1,259 +1,242 @@
-#!/usr/bin/env python3
-"""petribox CLI - manage Incus-backed dishes for AI agents."""
+"""petribox command line. Everything not here is plain `incus` (see README)."""
+
+from __future__ import annotations
 
 import argparse
+import io
+import json
+import os
+import shlex
 import sys
+import tarfile
+import tempfile
+import time
 from pathlib import Path
 
-from .commands import (
-    cmd_comms,
-    cmd_config,
-    cmd_console,
-    cmd_create,
-    cmd_delete,
-    cmd_down,
-    cmd_env_list,
-    cmd_env_set,
-    cmd_env_unset,
-    cmd_export,
-    cmd_import,
-    cmd_initial_setup,
-    cmd_install,
-    cmd_list,
-    cmd_mount,
-    cmd_move,
-    cmd_port_forward,
-    cmd_port_forward_list,
-    cmd_port_forward_stop,
-    cmd_remote_add,
-    cmd_remote_list,
-    cmd_ssh,
-    cmd_ssh_config,
-    cmd_status,
-    cmd_umount,
-    cmd_up,
-)
-from .presets import PRESET_NAMES
-from .tui import run_create_tui
+from . import __version__, incus, recipes, secrets
 
-AGENT_CHOICES = ["hermes", "openclaw", "nemoclaw", "nullclaw", "picoclaw", "loong", "zeroclaw", "pi"]
+USER_KEY = "user.petribox.user"  # set on the base, so every copy carries it
 
 
+def fail(msg: str) -> None:
+    print(f"petribox: {msg}", file=sys.stderr)
+    sys.exit(1)
+
+
+def dish_user(name: str) -> str:
+    user = incus.config_get(name, USER_KEY)
+    if not user:
+        fail(f"'{name}' was not made by petribox ({USER_KEY} is not set)")
+    return user
+
+
+# ---------------------------------------------------------------------------
+# Commands
+# ---------------------------------------------------------------------------
+def cmd_recipes(args) -> None:
+    for r in recipes.all_recipes():
+        built = "built" if incus.has_snapshot(r.base, "clean") else "-"
+        kind = "vm" if r.vm else "container"
+        print(f"{r.name:15s} {kind:9s} {built:5s}  {r.image:24s} {r.description}")
+
+
+def cmd_build(args) -> None:
+    """Plain image -> provisioned base instance, stopped, with a `clean` snapshot."""
+    r = recipes.find(args.recipe)
+    if args.resume:
+        # Finish a build that stopped at the agent (e.g. after installing it by hand).
+        if not incus.exists(r.base):
+            fail(f"nothing to resume: {r.base} does not exist")
+        if incus.run("info", r.base).stdout.find("Status: RUNNING") < 0:
+            incus.run("start", r.base)
+        provision_and_snapshot(r, args.timeout)
+        return
+    if incus.exists(r.base):
+        if not args.rebuild:
+            fail(f"{r.base} already exists; pass --rebuild to start it over, or --resume")
+        incus.run("delete", "--force", r.base)
+
+    init = ["init", r.image, r.base,
+            "-c", f"limits.cpu={r.cpus}", "-c", f"limits.memory={r.memory}",
+            "-c", f"{USER_KEY}={r.user}", "-d", f"root,size={r.disk}"]
+    for key, value in r.config.items():
+        init += ["-c", f"{key}={value}"]
+    if r.vm:
+        init.append("--vm")
+    print(f"== {r.base}: creating from {r.image}")
+    incus.run(*init, capture=False)  # shows the image download progress
+    if r.vm:
+        # Images without a built-in agent (cloud variants, imported disks) need
+        # the agent config drive; for the others it does no harm.
+        incus.run("config", "device", "add", r.base, "agent", "disk", "source=agent:config",
+                  check=False)
+    incus.run("start", r.base)
+    provision_and_snapshot(r, args.timeout)
+
+
+def provision_and_snapshot(r: recipes.Recipe, timeout: float) -> None:
+    try:
+        incus.wait_for_agent(r.base, timeout=timeout)
+    except incus.IncusError:
+        fail(f"{r.base} is running but has no Incus agent. Install it inside the instance "
+             f"(see README, 'Images without an agent'), then: petribox build {r.name} --resume")
+
+    print(f"== {r.base}: provisioning")
+    incus.run("exec", r.base, "--env", f"PB_USER={r.user}", "--", "bash", "-s",
+              input=r.script(), capture=False)
+
+    print(f"== {r.base}: snapshot 'clean'")
+    incus.run("stop", r.base)
+    if incus.has_snapshot(r.base, "clean"):
+        incus.run("snapshot", "delete", r.base, "clean")
+    incus.run("snapshot", "create", r.base, "clean")
+    print(f"Done. Make a dish: petribox new <name> --from {r.name}")
+
+
+def cmd_new(args) -> None:
+    r = recipes.find(args.recipe)
+    if not incus.has_snapshot(r.base, "clean"):
+        fail(f"recipe '{r.name}' is not built yet: petribox build {r.name}")
+    if incus.exists(args.name):
+        fail(f"'{args.name}' already exists")
+
+    # Resolve secrets before the copy, so a prompt or a failing command
+    # happens before anything is created.
+    env = {key: secrets.resolve(key) for key in args.secret or []}
+
+    copy = ["copy", f"{r.base}/clean", args.name]
+    if args.ephemeral:
+        copy.append("--ephemeral")
+    if args.cpus:
+        copy += ["-c", f"limits.cpu={args.cpus}"]
+    if args.memory:
+        copy += ["-c", f"limits.memory={args.memory}"]
+    incus.run(*copy)
+    incus.run("start", args.name)
+    incus.wait_for_agent(args.name)
+
+    user = dish_user(args.name)
+    if env:
+        secrets.write_env(args.name, user, env)
+        print(f"secrets: {', '.join(sorted(env))}")
+    repo = (secrets.user_config().get("dotfiles") or {}).get("repo")
+    if repo and not args.no_dotfiles:
+        apply_dotfiles(args.name, user, repo)
+
+    note = " (ephemeral: deleted when it stops)" if args.ephemeral else ""
+    print(f"Dish '{args.name}' is running{note}. Enter it: petribox shell {args.name}")
+
+
+def apply_dotfiles(name: str, user: str, repo: str) -> None:
+    """chezmoi does the dotfiles; installed into ~/.local/bin if missing."""
+    script = (
+        "export PATH=$HOME/.local/bin:$PATH; "
+        "command -v chezmoi >/dev/null || sh -c \"$(curl -fsLS get.chezmoi.io)\" -- -b ~/.local/bin; "
+        f"chezmoi init --apply {shlex.quote(repo)}"
+    )
+    print(f"dotfiles: {repo}")
+    incus.run("exec", name, "--", "su", "-", user, "-c", script, capture=False)
+
+
+def cmd_import_image(args) -> None:
+    """A VM disk image (qcow2, e.g. a distro's official QEMU image) -> local Incus image."""
+    disk = Path(args.disk).resolve()
+    if not disk.is_file():
+        fail(f"no such file: {disk}")
+    metadata = (
+        "architecture: x86_64\n"
+        f"creation_date: {int(time.time())}\n"
+        "properties:\n"
+        f"  description: {json.dumps(args.description or disk.name)}\n"
+    )
+    with tempfile.TemporaryDirectory() as tmp:
+        meta = Path(tmp) / "metadata.tar"
+        with tarfile.open(meta, "w") as tar:
+            info = tarfile.TarInfo("metadata.yaml")
+            info.size = len(metadata.encode())
+            tar.addfile(info, io.BytesIO(metadata.encode()))
+        print(f"importing {disk.name} as '{args.alias}' (copies the whole disk)")
+        incus.run("image", "import", str(meta), str(disk), "--alias", args.alias, capture=False)
+
+
+def cmd_shell(args) -> None:
+    user = dish_user(args.name)
+    argv = ["incus", "exec", args.name, "--", "su", "-", user]
+    if args.command:
+        argv += ["-c", " ".join(args.command)]  # like ssh: words joined, the shell parses
+    os.execvp("incus", argv)
+
+
+def cmd_secret(args) -> None:
+    user = dish_user(args.name)
+    env = secrets.read_env(args.name, user)
+    if not (args.keys or args.unset):
+        for key, value in sorted(env.items()):
+            print(f"{key}={secrets.mask(value)}")
+        return
+    for key in args.unset or []:
+        env.pop(key, None)
+    for key in args.keys:
+        env[key] = secrets.resolve(key)
+    secrets.write_env(args.name, user, env)
+    print(f"{args.name}: {', '.join(sorted(env)) or 'no secrets'}")
+
+
+# ---------------------------------------------------------------------------
+# Parser
+# ---------------------------------------------------------------------------
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="petribox",
-        description="Manage isolated Incus dishes (VMs/containers) for AI agents",
+        description="Incus sandboxes built from recipes. Everything else is plain incus.",
     )
-    parser.add_argument("--version", action="version", version="%(prog)s 0.1.0")
-    parser.add_argument("--verbose", "-v", action="store_true", help="Verbose errors")
+    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
+    sub = parser.add_subparsers(dest="command", required=True)
 
-    sub = parser.add_subparsers(dest="command", help="Commands")
+    p = sub.add_parser("recipes", help="list recipes and whether their base is built")
+    p.set_defaults(func=cmd_recipes)
 
-    # create
-    p = sub.add_parser("create", help="Create a new dish")
-    p.add_argument("name", nargs="?", help="Dish name (optional with --tui)")
-    p.add_argument("--tui", action="store_true", help="Interactive creation")
-    p.add_argument("--container", action="store_true",
-                   help="Create a system container instead of a VM (faster, lighter)")
-    p.add_argument("--ram", type=int, default=None, help="RAM in MB (default: preset or 4096)")
-    p.add_argument("--cpus", type=int, default=None, help="CPU count (default: preset or 2)")
-    p.add_argument("--disk", type=int, default=None, help="Disk in GB (default: preset or 20)")
-    p.add_argument("--user", default="petri", help="Username (default: petri)")
-    p.add_argument("--ssh-key", type=Path, help="SSH public key for optional SSH login")
-    p.add_argument("--password", help="User password (optional)")
-    p.add_argument("--image", help=f"Incus image (default: {''}images:rockylinux/9/cloud)")
-    p.add_argument("--dotfiles", help="Dotfiles: git URL, local path, or preset name")
-    p.add_argument("--mount", action="append", dest="mounts", metavar="HOST:VM",
-                   help="Share a host directory (repeatable)")
-    p.add_argument("--config", type=Path, help="YAML config (packages, mise, pip, ...)")
-    p.add_argument("--shell", choices=["bash", "zsh"], default="bash", help="Login shell")
-    p.add_argument("--preset", choices=PRESET_NAMES, help="Configuration preset")
-    p.add_argument("--agent", choices=AGENT_CHOICES, help="Install an AI agent at creation")
-    p.add_argument("--env", action="append", metavar="KEY=VALUE",
-                   help="Set an environment variable (repeatable, e.g. --env EDITOR=vim)")
-    p.add_argument("--secret", action="append", metavar="KEY",
-                   help="Inject KEY resolved on the host from config.toml [secrets] "
-                        "(repeatable, e.g. --secret ANTHROPIC_API_KEY)")
-    p.set_defaults(func=cmd_create)
+    p = sub.add_parser("build", help="build a recipe's base instance and its 'clean' snapshot")
+    p.add_argument("recipe")
+    p.add_argument("--rebuild", action="store_true", help="delete an existing base first")
+    p.add_argument("--resume", action="store_true", help="provision an existing base (after a manual step)")
+    p.add_argument("--timeout", type=float, default=300, help="seconds to wait for the agent")
+    p.set_defaults(func=cmd_build)
 
-    # list
-    p = sub.add_parser("list", help="List all dishes")
-    p.set_defaults(func=cmd_list)
-
-    # up / down
-    p = sub.add_parser("up", help="Start a dish")
+    p = sub.add_parser("new", help="make a dish from a built recipe")
     p.add_argument("name")
-    p.set_defaults(func=cmd_up)
-    p = sub.add_parser("down", help="Stop a dish")
+    p.add_argument("--from", dest="recipe", required=True, metavar="RECIPE")
+    p.add_argument("--ephemeral", action="store_true", help="delete the dish when it stops")
+    p.add_argument("--secret", action="append", metavar="KEY", help="hand in a secret (repeatable)")
+    p.add_argument("--cpus", type=int, help="override the recipe's CPU limit")
+    p.add_argument("--memory", help="override the recipe's memory limit, e.g. 8GiB")
+    p.add_argument("--no-dotfiles", action="store_true", help="skip [dotfiles] from the config")
+    p.set_defaults(func=cmd_new)
+
+    p = sub.add_parser("import-image", help="turn a VM disk image (qcow2) into a local Incus image")
+    p.add_argument("disk")
+    p.add_argument("alias", help="name to use as a recipe's image")
+    p.add_argument("--description")
+    p.set_defaults(func=cmd_import_image)
+
+    p = sub.add_parser("shell", help="login shell (or one command) as the dish user")
     p.add_argument("name")
-    p.set_defaults(func=cmd_down)
+    p.add_argument("command", nargs=argparse.REMAINDER)
+    p.set_defaults(func=cmd_shell)
 
-    # delete
-    p = sub.add_parser("delete", help="Delete a dish")
+    p = sub.add_parser("secret", help="list (masked), set or unset a dish's secrets")
     p.add_argument("name")
-    p.add_argument("--force", "-f", action="store_true", help="No confirmation")
-    p.set_defaults(func=cmd_delete)
-
-    # status
-    p = sub.add_parser("status", help="Show dish status")
-    p.add_argument("name")
-    p.set_defaults(func=cmd_status)
-
-    # console / connect
-    p = sub.add_parser("console", help="Attach to the dish console")
-    p.add_argument("name")
-    p.set_defaults(func=cmd_console)
-    p = sub.add_parser("connect", help="Open a shell in the dish (incus exec)")
-    p.add_argument("name")
-    p.add_argument("ssh_command", nargs="*", help="Command to run (optional)")
-    p.add_argument("--gui", "-X", action="store_true",
-                   help="Forward X11 over ssh -Y so GUI apps (ase gui, matplotlib) display on the host")
-    p.set_defaults(func=cmd_ssh)
-
-    # mount / umount
-    p = sub.add_parser("mount", help="Share a host directory into a dish")
-    p.add_argument("name")
-    p.add_argument("host_path")
-    p.add_argument("vm_path")
-    p.set_defaults(func=cmd_mount)
-    p = sub.add_parser("umount", help="Remove a shared directory")
-    p.add_argument("name")
-    p.add_argument("vm_path")
-    p.set_defaults(func=cmd_umount)
-
-    # config
-    p = sub.add_parser("config", help="View presets or a dish's settings")
-    p.add_argument("action", choices=["list", "show", "edit"])
-    p.add_argument("name", nargs="?")
-    p.set_defaults(func=cmd_config)
-
-    # port-forward
-    p = sub.add_parser("port-forward", help="Forward a dish port to localhost")
-    p.add_argument("name")
-    p.add_argument("port", type=int)
-    p.add_argument("--local-port", type=int, help="Local port (default: same)")
-    p.set_defaults(func=cmd_port_forward)
-    p = sub.add_parser("port-forward-list", help="List active port forwards")
-    p.set_defaults(func=cmd_port_forward_list)
-    p = sub.add_parser("port-forward-stop", help="Stop a port forward")
-    p.add_argument("name")
-    p.add_argument("port", type=int)
-    p.set_defaults(func=cmd_port_forward_stop)
-
-    # env
-    p = sub.add_parser("env", help="Manage environment variables inside a dish")
-    env_sub = p.add_subparsers(dest="env_action", help="env sub-commands")
-
-    ep = env_sub.add_parser("set", help="Set an environment variable")
-    ep.add_argument("name")
-    ep.add_argument("key", metavar="KEY")
-    ep.add_argument("value", metavar="VALUE", nargs="?",
-                    help="Literal value. Omit to use --from-cmd, your config.toml "
-                         "[secrets] entry, or a hidden prompt")
-    ep.add_argument("--from-cmd", metavar="CMD",
-                    help="Host command that prints the value, e.g. 'secret-tool lookup service openai'")
-    ep.set_defaults(func=cmd_env_set)
-
-    ep = env_sub.add_parser("list", help="List environment variables (values masked)")
-    ep.add_argument("name")
-    ep.add_argument("--show", action="store_true", help="Print values unmasked")
-    ep.set_defaults(func=cmd_env_list)
-
-    ep = env_sub.add_parser("unset", help="Remove an environment variable")
-    ep.add_argument("name")
-    ep.add_argument("key", metavar="KEY", nargs="?")
-    ep.add_argument("--all", action="store_true", help="Remove every variable (e.g. before export)")
-    ep.set_defaults(func=cmd_env_unset)
-
-    def _env_dispatch(args):
-        if not args.env_action:
-            p.print_help()
-        else:
-            args.func(args)
-
-    p.set_defaults(func=_env_dispatch)
-
-    # install
-    p = sub.add_parser("install", help="Install agents/packages into a running dish")
-    p.add_argument("name")
-    p.add_argument("--agent", choices=AGENT_CHOICES)
-    p.add_argument("--mise-package", action="append", dest="mise_packages", metavar="PKG")
-    p.set_defaults(func=cmd_install)
-
-    # portability
-    p = sub.add_parser("export", help="Export a dish to a portable tarball")
-    p.add_argument("name")
-    p.add_argument("--output", "-o", help="Output file (default: <name>.tar.gz)")
-    p.set_defaults(func=cmd_export)
-    p = sub.add_parser("import", help="Import a dish from a tarball")
-    p.add_argument("file")
-    p.add_argument("name", nargs="?", help="New dish name (optional)")
-    p.set_defaults(func=cmd_import)
-    p = sub.add_parser("move", help="Migrate a dish to a remote Incus server")
-    p.add_argument("name")
-    p.add_argument("dest", help="Remote, e.g. 'cloud' or 'cloud:newname'")
-    p.add_argument("--copy", action="store_true", help="Copy instead of move (keep local)")
-    p.set_defaults(func=cmd_move)
-    p = sub.add_parser("remote-add", help="Register a remote Incus server")
-    p.add_argument("name")
-    p.add_argument("url")
-    p.set_defaults(func=cmd_remote_add)
-    p = sub.add_parser("remote-list", help="List configured remotes")
-    p.set_defaults(func=cmd_remote_list)
-
-    # comms
-    p = sub.add_parser("comms", help="Mark a dish comms-ready (A2A/MCP)")
-    p.add_argument("name")
-    p.add_argument("--protocol", choices=["a2a", "mcp"], default="a2a")
-    p.add_argument("--port", type=int, help="Comms port (default: 41241)")
-    p.add_argument("--expose", action="store_true", help="Expose the port to the host")
-    p.add_argument("--runtime", help="Shell command to install the comms runtime in the dish")
-    p.set_defaults(func=cmd_comms)
-
-    # ssh-config
-    p = sub.add_parser(
-        "ssh-config",
-        help="Update ~/.ssh/petribox_config with running dishes for use with ssh/kitten",
-    )
-    p.set_defaults(func=cmd_ssh_config)
-
-    # initial-setup
-    p = sub.add_parser("initial-setup", help="Install/initialise Incus prerequisites")
-    p.add_argument("--auto", "-y", action="store_true", help="Accept all defaults")
-    p.set_defaults(func=cmd_initial_setup)
-
+    p.add_argument("keys", nargs="*", metavar="KEY", help="set these (from config or a prompt)")
+    p.add_argument("--unset", action="append", metavar="KEY")
+    p.set_defaults(func=cmd_secret)
     return parser
 
 
-def main():
-    parser = build_parser()
-    args = parser.parse_args()
-
-    if not args.command:
-        parser.print_help()
-        sys.exit(1)
-
-    if args.command == "create" and args.tui:
-        # Route through the same error handling as every other command.
-        args.func = lambda _args: run_create_tui()
-
-    if not hasattr(args, "func"):
-        parser.print_help()
-        sys.exit(1)
-
+def main(argv: list[str] | None = None) -> None:
+    args = build_parser().parse_args(argv)
     try:
         args.func(args)
+    except (incus.IncusError, recipes.RecipeError, secrets.SecretError) as exc:
+        fail(str(exc))
     except KeyboardInterrupt:
-        print("\nOperation cancelled.")
         sys.exit(130)
-    except Exception as exc:  # noqa: BLE001
-        if getattr(args, "verbose", False):
-            import traceback
-            traceback.print_exc()
-        else:
-            print(f"Error: {exc}", file=sys.stderr)
-        sys.exit(1)
-
-
-if __name__ == "__main__":
-    main()

@@ -1,0 +1,2 @@
+description = "Arch Linux VM"
+image = "images:archlinux"

@@ -1,0 +1,11 @@
+# UNTESTED. Omarchy on top of a plain Arch VM, using Omarchy's own installer.
+# The installer may ask questions; if `petribox build omarchy` stalls, build
+# the arch recipe, run the installer by hand in `petribox shell`, then
+# `incus stop pb-arch && incus snapshot create pb-arch clean`.
+# Hyprland in a VM falls back to software rendering: usable, not fast.
+# Look at it with: incus console <dish> --type=vga
+description = "Omarchy (Arch + Hyprland) VM, untested"
+image = "images:archlinux"
+cpus = 4
+memory = "8GiB"
+disk = "60GiB"

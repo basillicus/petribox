@@ -1,0 +1,2 @@
+description = "Rocky Linux 9 VM"
+image = "images:rockylinux/9"

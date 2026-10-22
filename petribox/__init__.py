@@ -1,10 +1,10 @@
 """
-Petribox - Quick AI Experiment VM Manager
+petribox - Incus sandboxes ("dishes") built from recipes.
 
-A tool for spinning up and managing isolated Rocky Linux VMs (dishes)
-for AI experiments, Agentic AI development, and evaluation.
-
-Each VM is a "dish" - an isolated environment where agents can grow and thrive.
+A recipe is a plain Incus image plus a provisioning script. `petribox build`
+turns it into a stopped base instance with a `clean` snapshot; `petribox new`
+copies that snapshot into a dish and hands it secrets and dotfiles. Everything
+else (list, stop, delete, snapshots, mounts, ports, export, move) is plain Incus.
 """
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
