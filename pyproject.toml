@@ -5,7 +5,7 @@ description = "Incus sandboxes built from recipes: plain image + provisioning sc
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
-dependencies = []
+dependencies = ["rich>=13.0"]
 
 [project.scripts]
 petribox = "petribox.cli:main"

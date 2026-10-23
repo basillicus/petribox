@@ -14,15 +14,11 @@ import tempfile
 import time
 from pathlib import Path
 
-from . import __version__, incus, recipes, secrets
+from . import __version__, incus, recipes, secrets, ui
+from .ui import fail
 
 USER_KEY = "user.petribox.user"  # set on the base, so every copy carries it
 RECIPE_KEY = "user.petribox.recipe"
-
-
-def fail(msg: str) -> None:
-    print(f"petribox: {msg}", file=sys.stderr)
-    sys.exit(1)
 
 
 def dish_user(name: str) -> str:
@@ -36,10 +32,12 @@ def dish_user(name: str) -> str:
 # Commands
 # ---------------------------------------------------------------------------
 def cmd_recipes(args) -> None:
+    rows = []
     for r in recipes.all_recipes():
-        built = "built" if incus.has_snapshot(r.base, "clean") else "-"
-        kind = "vm" if r.vm else "container"
-        print(f"{r.name:15s} {kind:9s} {built:5s}  {r.image:24s} {r.description}")
+        built = ui.Text("✓ built", style="green") if incus.has_snapshot(r.base, "clean") else ui.Text("-", style="dim")
+        rows.append((r.name, "vm" if r.vm else "container", built, r.image, r.description))
+    ui.table([("Recipe", "cyan"), ("Type", ""), ("Base", ""), ("Image", "dim"), ("Description", "")],
+             rows, title="Recipes")
 
 
 def cmd_build(args) -> None:
@@ -66,7 +64,7 @@ def cmd_build(args) -> None:
         init += ["-c", f"{key}={value}"]
     if r.vm:
         init.append("--vm")
-    print(f"== {r.base}: creating from {r.image}")
+    ui.step(f"{r.base}: creating from {r.image}")
     incus.run(*init, capture=False)  # shows the image download progress
     if r.vm:
         # Images without a built-in agent (cloud variants, imported disks) need
@@ -79,26 +77,31 @@ def cmd_build(args) -> None:
 
 def provision_and_snapshot(r: recipes.Recipe, timeout: float) -> None:
     try:
-        incus.wait_for_agent(r.base, timeout=timeout)
+        with ui.spinner(f"Waiting for the Incus agent in {r.base}..."):
+            incus.wait_for_agent(r.base, timeout=timeout)
     except incus.IncusError:
         fail(f"{r.base} is running but has no Incus agent. Install it inside the instance "
              f"(see README, 'Images without an agent'), then: petribox build {r.name} --resume")
 
-    print(f"== {r.base}: provisioning")
+    ui.step(f"{r.base}: provisioning")
     incus.run("exec", r.base, "--env", f"PB_USER={r.user}", "--", "bash", "-s",
               input=r.script(), capture=False)
 
-    print(f"== {r.base}: snapshot 'clean'")
+    ui.step(f"{r.base}: snapshot 'clean'")
     # Some guests (Kali's desktop image) ignore the ACPI shutdown request, so
     # flush the disks first and force the stop if the clean one times out.
-    incus.run("exec", r.base, "--", "sync", check=False)
-    if incus.run("stop", r.base, "--timeout", "60", check=False).returncode != 0:
-        print(f"== {r.base}: guest ignored shutdown, forcing the stop")
-        incus.run("stop", r.base, "--force")
+    with ui.spinner(f"Stopping {r.base}..."):
+        incus.run("exec", r.base, "--", "sync", check=False)
+        stopped = incus.run("stop", r.base, "--timeout", "60", check=False).returncode == 0
+        if not stopped:
+            incus.run("stop", r.base, "--force")
+    if not stopped:
+        ui.warn(f"{r.base} ignored the shutdown request; stopped it by force after syncing")
     if incus.has_snapshot(r.base, "clean"):
         incus.run("snapshot", "delete", r.base, "clean")
     incus.run("snapshot", "create", r.base, "clean")
-    print(f"Done. Make a dish: petribox new <name> --from {r.name}")
+    ui.ok(f"{r.base} built")
+    ui.hint("Make a dish", f"petribox new <name> --from {r.name}")
 
 
 def cmd_new(args) -> None:
@@ -119,20 +122,27 @@ def cmd_new(args) -> None:
         copy += ["-c", f"limits.cpu={args.cpus}"]
     if args.memory:
         copy += ["-c", f"limits.memory={args.memory}"]
-    incus.run(*copy)
-    incus.run("start", args.name)
-    incus.wait_for_agent(args.name)
+    with ui.spinner(f"Creating {args.name} from {r.base}/clean..."):
+        incus.run(*copy)
+        incus.run("start", args.name)
+    ui.ok(f"{args.name} created ({'vm' if r.vm else 'container'}, recipe {r.name})")
+    with ui.spinner(f"Waiting for {args.name} to boot..."):
+        incus.wait_for_agent(args.name)
 
     user = dish_user(args.name)
     if env:
         secrets.write_env(args.name, user, env)
-        print(f"secrets: {', '.join(sorted(env))}")
+        ui.ok(f"Secrets: {', '.join(sorted(env))}")
     repo = (secrets.user_config().get("dotfiles") or {}).get("repo")
     if repo and not args.no_dotfiles:
         apply_dotfiles(args.name, user, repo)
 
-    note = " (ephemeral: deleted when it stops)" if args.ephemeral else ""
-    print(f"Dish '{args.name}' is running{note}. Enter it: petribox shell {args.name}")
+    ui.ok(f"Dish '{args.name}' is ready")
+    if args.ephemeral:
+        ui.info("Ephemeral: it is deleted when it stops.")
+    ui.hint("Enter", f"petribox shell {args.name}")
+    ui.hint("Share", f"petribox mount {args.name} ./dir")
+    ui.hint("Delete", f"incus delete -f {args.name}")
 
 
 def apply_dotfiles(name: str, user: str, repo: str) -> None:
@@ -142,7 +152,7 @@ def apply_dotfiles(name: str, user: str, repo: str) -> None:
         "command -v chezmoi >/dev/null || sh -c \"$(curl -fsLS get.chezmoi.io)\" -- -b ~/.local/bin; "
         f"chezmoi init --apply {shlex.quote(repo)}"
     )
-    print(f"dotfiles: {repo}")
+    ui.step(f"Dotfiles: {repo}")
     incus.run("exec", name, "--", "su", "-", user, "-c", script, capture=False)
 
 
@@ -161,14 +171,14 @@ def cmd_list(args) -> None:
                 if nic != "lo" for a in net.get("addresses", []) if a.get("family") == "inet"]
         kind = "vm" if inst.get("type") == "virtual-machine" else "container"
         notes = ", ".join(n for n, on in (("base", is_base), ("ephemeral", inst.get("ephemeral"))) if on)
-        rows.append((inst["name"], recipe, kind, inst["status"], ipv4[0] if ipv4 else "-", notes))
+        rows.append((inst["name"], recipe, kind, ui.state(inst["status"]),
+                     ipv4[0] if ipv4 else "-", notes))
     if not rows:
-        print("no dishes (make one: petribox new NAME --from RECIPE)")
+        ui.warn("No dishes")
+        ui.hint("Make one", "petribox new NAME --from RECIPE")
         return
-    rows.insert(0, ("NAME", "RECIPE", "TYPE", "STATE", "IPV4", ""))
-    widths = [max(len(r[i]) for r in rows) for i in range(5)]
-    for row in rows:
-        print("  ".join(c.ljust(w) for c, w in zip(row, widths)), row[5])
+    ui.table([("Name", "cyan"), ("Recipe", ""), ("Type", ""), ("State", ""), ("IPv4", "dim"), ("", "yellow")],
+             rows, title="Petribox dishes")
 
 
 def cmd_mount(args) -> None:
@@ -188,13 +198,15 @@ def cmd_mount(args) -> None:
         disk.append("shift=true")  # map host ownership onto the container's users
     incus.run(*disk)
     # In a running VM the agent mounts it a few seconds later; wait for that.
-    for _ in range(30):
-        if incus.run("exec", args.name, "--", "mountpoint", "-q", dest, check=False).returncode == 0:
-            break
-        time.sleep(1)
-    else:
-        print(f"petribox: {dest} is not mounted yet; it will be after a restart", file=sys.stderr)
-    print(f"{src} -> {args.name}:{dest}  (remove: incus config device remove {args.name} {device})")
+    with ui.spinner(f"Mounting {dest}..."):
+        for _ in range(30):
+            if incus.run("exec", args.name, "--", "mountpoint", "-q", dest, check=False).returncode == 0:
+                break
+            time.sleep(1)
+        else:
+            ui.warn(f"{dest} is not mounted yet; it will be after a restart")
+    ui.ok(f"{src} -> {args.name}:{dest}")
+    ui.hint("Unmount", f"incus config device remove {args.name} {device}")
 
 
 def cmd_import_image(args) -> None:
@@ -214,7 +226,7 @@ def cmd_import_image(args) -> None:
             info = tarfile.TarInfo("metadata.yaml")
             info.size = len(metadata.encode())
             tar.addfile(info, io.BytesIO(metadata.encode()))
-        print(f"importing {disk.name} as '{args.alias}' (copies the whole disk)")
+        ui.step(f"Importing {disk.name} as '{args.alias}' (copies the whole disk)")
         incus.run("image", "import", str(meta), str(disk), "--alias", args.alias, capture=False)
 
 
@@ -230,15 +242,18 @@ def cmd_secret(args) -> None:
     user = dish_user(args.name)
     env = secrets.read_env(args.name, user)
     if not (args.keys or args.unset):
-        for key, value in sorted(env.items()):
-            print(f"{key}={secrets.mask(value)}")
+        if not env:
+            ui.info(f"{args.name} has no secrets")
+            return
+        ui.table([("Secret", "cyan"), ("Value", "dim")],
+                 [(k, secrets.mask(v)) for k, v in sorted(env.items())], title=f"Secrets in {args.name}")
         return
     for key in args.unset or []:
         env.pop(key, None)
     for key in args.keys:
         env[key] = secrets.resolve(key)
     secrets.write_env(args.name, user, env)
-    print(f"{args.name}: {', '.join(sorted(env)) or 'no secrets'}")
+    ui.ok(f"{args.name}: {', '.join(sorted(env)) or 'no secrets'}")
 
 
 # ---------------------------------------------------------------------------
