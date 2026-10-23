@@ -169,3 +169,20 @@ def test_failed_create_removes_the_half_made_instance(fake, monkeypatch):
     with pytest.raises(SystemExit):
         cli.main(["build", "arch"])
     assert ("delete", "--force", "pb-arch") in fake.calls
+
+
+def test_add_runs_the_extras_in_an_existing_dish(fake):
+    fake.existing.add("lab")
+    fake.config["user.petribox.user"] = "petri"
+    cli.main(["add", "lab", "uv"])
+    run = [c for c in fake.calls if c[0] == "exec" and "bash" in c]
+    assert run and "PB_USER=petri" in run[0]
+    assert ("start", "lab") in fake.calls  # the fake reports it as not running
+
+
+def test_add_refuses_a_base_and_points_to_the_recipe(fake, capsys):
+    fake.existing.add("pb-rocky")
+    with pytest.raises(SystemExit):
+        cli.main(["add", "pb-rocky", "uv"])
+    assert "build rocky --resume" in capsys.readouterr().err
+    assert fake.calls == []

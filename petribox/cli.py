@@ -243,10 +243,44 @@ def cmd_new(args) -> None:
         ui.info("Ephemeral: it is deleted when it stops.")
     ui.hint("Enter", f"petribox shell {args.name}")
     if "ssh" in [e.name for e, _ in recipes.resolve_extras((r.extras if r else []) + extras)]:
-        addr = ipv4(json.loads(incus.run("query", f"/1.0/instances/{args.name}/state").stdout))
-        ui.hint("SSH", f"ssh {user}@{addr or '<ip from petribox list>'}")
+        ssh_hint(args.name, user)
     ui.hint("Share", f"petribox mount {args.name} ./dir")
     ui.hint("Delete", f"incus delete -f {args.name}")
+
+
+def ssh_hint(name: str, user: str) -> None:
+    addr = ipv4(json.loads(incus.run("query", f"/1.0/instances/{name}/state").stdout))
+    ui.hint("SSH", f"ssh {user}@{addr or '<ip from petribox list>'}")
+
+
+def cmd_add(args) -> None:
+    """Install extras into an existing dish. Only that dish gets them: for
+    every future dish, put them in the recipe and rebuild its base."""
+    name = args.name
+    hints.context(instance=name, phase="create")
+    if name.startswith(recipes.BASE_PREFIX):
+        recipe = name.removeprefix(recipes.BASE_PREFIX)
+        fail(f"'{name}' is a base: add the extras to recipe '{recipe}' (extras = [...]), "
+             f"then petribox build {recipe} --resume")
+    if not incus.exists(name):
+        fail(f"no such dish: {name}")
+    user = dish_user(name)
+    recipes.resolve_extras(args.extras)  # unknown names fail before anything runs
+    state = json.loads(incus.run("query", f"/1.0/instances/{name}/state").stdout or "{}")
+    if state.get("status") != "Running":
+        incus.run("start", name)
+    with ui.spinner(f"Waiting for {name}..."):
+        incus.wait_for_agent(name)
+    ui.step(f"{name}: extras {', '.join(args.extras)}")
+    hints.context(phase="provision")
+    run_script(name, user, recipes.provision_script(args.extras))
+    ui.ok(f"Installed into {name}: {', '.join(args.extras)}")
+    if "ssh" in [e.name for e, _ in recipes.resolve_extras(args.extras)]:
+        ssh_hint(name, user)
+    recipe = incus.config_get(name, RECIPE_KEY)
+    if recipe and not recipe.count(":"):
+        ui.info(f"Only this dish has them. For every new dish: add them to recipe '{recipe}' "
+                f"and run petribox build {recipe} --resume")
 
 
 def launch_from_image(args, limits: list[str], extras: list[str]) -> None:
@@ -303,7 +337,7 @@ def cmd_list(args) -> None:
         ui.warn("No dishes")
         ui.hint("Make one", "petribox new NAME --from RECIPE")
         return
-    ui.table([("Name", "cyan"), ("Recipe", ""), ("Type", ""), ("State", ""), ("IPv4", "dim"), ("", "yellow")],
+    ui.table([("Name", "cyan"), ("Recipe", ""), ("Type", ""), ("State", ""), ("IPv4", "dim"), ("Notes", "yellow")],
              rows, title="Petribox dishes")
 
 
@@ -418,7 +452,7 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("build", help="build a recipe's base instance and its 'clean' snapshot")
     p.add_argument("recipe")
     p.add_argument("--rebuild", action="store_true", help="delete an existing base first")
-    p.add_argument("--resume", action="store_true", help="provision an existing base (after a manual step)")
+    p.add_argument("--resume", action="store_true", help="run the recipe's script again on the existing base, then re-snapshot")
     p.add_argument("--timeout", type=float, default=300, help="seconds to wait for the agent")
     p.set_defaults(func=cmd_build)
 
@@ -438,6 +472,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--user", help="with --image: the dish user (default: petri)")
     p.add_argument("--no-dotfiles", action="store_true", help="skip [dotfiles] from the config")
     p.set_defaults(func=cmd_new)
+
+    p = sub.add_parser("add", help="install extras into an existing dish")
+    p.add_argument("name")
+    p.add_argument("extras", nargs="+", metavar="EXTRA", help="NAME or NAME@VERSION (see `petribox extras`)")
+    p.set_defaults(func=cmd_add)
 
     p = sub.add_parser("list", help="list dishes with their recipe and address")
     p.add_argument("--bases", action="store_true", help="include the pb-* base instances")

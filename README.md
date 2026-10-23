@@ -49,10 +49,11 @@ incus stop try1              # gone
 | `petribox recipes` | List recipes and whether their base is built |
 | `petribox extras` | List extras: ssh, mise, node, uv, podman and agent CLIs |
 | `petribox export-recipe RECIPE --to vagrant\|lima [-o DIR]` | Write the recipe as a Vagrantfile + provision.sh, or a Lima template |
-| `petribox build RECIPE [--rebuild]` | Create `pb-RECIPE` from the image, run `_common.sh` + `provision.sh` as root, stop it, snapshot `clean` |
+| `petribox build RECIPE [--rebuild\|--resume]` | Create `pb-RECIPE` from the image, run `_common.sh` + extras + `provision.sh` as root, stop it, snapshot `clean`. `--resume` runs the script again on the existing base (after a recipe change), `--rebuild` starts over |
 | `petribox new` | Ask: recipe or image, resources, extras, secrets, dotfiles, shared folders; print the equivalent command; offer to save an image setup as a recipe |
 | `petribox new NAME --from RECIPE [--ephemeral] [--extra X]... [--secret KEY]... [--share DIR]... [--cpus N] [--memory 8GiB] [--no-dotfiles]` | `incus copy pb-RECIPE/clean NAME` (building the base first if needed), start, install extras, hand in secrets, apply dotfiles, mount folders |
 | `petribox new NAME --image IMAGE [--container] [--disk 40GiB] [--user U] ...` | No recipe: launch the image and set up the user on the spot (slower per dish; use a recipe for anything you repeat) |
+| `petribox add NAME EXTRA...` | Install extras into an existing dish (only that dish; for every future one, add them to the recipe and `build --resume`) |
 | `petribox list [--bases]` | Your dishes with recipe, state and IPv4 (`--bases` adds the `pb-*` bases) |
 | `petribox shell NAME [CMD...]` | Login shell (or one command) as the dish user |
 | `petribox mount NAME DIR [DEST]` | Share a host directory, by default at `~user/<dir name>`; remove with `incus config device remove NAME <device>` |
@@ -93,7 +94,9 @@ override built-ins of the same name.
 An extra is a shell script in [`petribox/recipes/_extras/`](petribox/recipes/_extras)
 that installs one thing, with the same helpers as `provision.sh`. Use them in
 a recipe (`extras = [...]`, baked into the base) or for one dish
-(`--extra NAME`, installed after the copy). Add your own as
+(`--extra NAME`, installed after the copy, or later with `petribox add`).
+Recipe extras are installed once into the base, so every dish has them
+at no cost; `--extra` and `add` install into that one dish each time. Add your own as
 `~/.config/petribox/extras/NAME.sh`:
 
 ```bash
