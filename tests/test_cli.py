@@ -186,3 +186,21 @@ def test_add_refuses_a_base_and_points_to_the_recipe(fake, capsys):
         cli.main(["add", "pb-rocky", "uv"])
     assert "build rocky --resume" in capsys.readouterr().err
     assert fake.calls == []
+
+
+def test_delete_needs_yes_off_a_terminal(fake, monkeypatch, capsys):
+    fake.existing.add("lab")
+    monkeypatch.setattr("sys.stdin.isatty", lambda: False)
+    with pytest.raises(SystemExit):
+        cli.main(["delete", "lab"])
+    assert ("delete", "--force", "lab") not in fake.calls
+    cli.main(["delete", "lab", "--yes"])
+    assert ("delete", "--force", "lab") in fake.calls
+    assert "incus delete --force lab" in capsys.readouterr().out
+
+
+def test_delete_checks_every_name_before_deleting_any(fake):
+    fake.existing.add("lab")
+    with pytest.raises(SystemExit):
+        cli.main(["delete", "lab", "nope", "--yes"])
+    assert not any(c[0] == "delete" for c in fake.calls)

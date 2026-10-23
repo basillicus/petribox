@@ -50,7 +50,7 @@ KNOWN = [
      'Out of disk space: raise disk = "..." in the recipe (or incus config device set '
      "{instance} root size=40GiB), or free space in the storage pool (incus storage info default)"),
     (r"already exists",
-     "Pick another name, or remove the old one: incus delete -f {instance}"),
+     "Pick another name, or remove the old one: petribox delete {instance}"),
     (r"Image not found|Couldn't find the requested image|not found in remote",
      "Unknown image. List what exists: incus image list images: <distro> "
      "(and incus image list for local ones)"),

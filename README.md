@@ -39,7 +39,7 @@ Throwaway dish that deletes itself when it stops:
 
 ```bash
 petribox new try1 --from debian --ephemeral
-incus stop try1              # gone
+petribox stop try1           # gone
 ```
 
 ## Commands
@@ -54,6 +54,7 @@ incus stop try1              # gone
 | `petribox new NAME --from RECIPE [--ephemeral] [--extra X]... [--secret KEY]... [--share DIR]... [--cpus N] [--memory 8GiB] [--no-dotfiles]` | `incus copy pb-RECIPE/clean NAME` (building the base first if needed), start, install extras, hand in secrets, apply dotfiles, mount folders |
 | `petribox new NAME --image IMAGE [--container] [--disk 40GiB] [--user U] ...` | No recipe: launch the image and set up the user on the spot (slower per dish; use a recipe for anything you repeat) |
 | `petribox add NAME EXTRA...` | Install extras into an existing dish (only that dish; for every future one, add them to the recipe and `build --resume`) |
+| `petribox start NAME...` / `stop NAME... [--force]` / `delete NAME... [--yes]` | Wrappers that print the `incus` command they run: `incus start`; `incus stop --timeout 60`, then `--force` if the guest ignores it (an ephemeral dish is then deleted); `incus delete --force`, after a question |
 | `petribox list [--bases]` | Your dishes with recipe, state and IPv4 (`--bases` adds the `pb-*` bases) |
 | `petribox shell NAME [CMD...]` | Login shell (or one command) as the dish user |
 | `petribox mount NAME DIR [DEST]` | Share a host directory, by default at `~user/<dir name>`; remove with `incus config device remove NAME <device>` |
@@ -241,7 +242,7 @@ dish) keeps the real key out of the dish.
 
 | Task | Command |
 |---|---|
-| Start, stop, delete | `incus start lab`, `incus stop lab`, `incus delete -f lab` |
+| Start, stop, delete | `incus start lab`, `incus stop lab`, `incus delete -f lab` (what `petribox start/stop/delete` run) |
 | Snapshot and roll back | `incus snapshot create lab before-upgrade`, `incus snapshot restore lab before-upgrade` |
 | Copy files in, out | `incus file push -r ./src lab/home/petri/`, `incus file pull -r lab/home/petri/out ./` |
 | Forward a port to the host | `incus config device add lab web proxy listen=tcp:127.0.0.1:8080 connect=tcp:127.0.0.1:8080` |
@@ -249,7 +250,7 @@ dish) keeps the real key out of the dish.
 | Export, import | `incus export lab lab.tar.gz`, `incus import lab.tar.gz` |
 | Move to another Incus host | `incus remote add other https://other.example.org:8443`, `incus move lab other:` |
 | Resize | `incus config set lab limits.cpu=4 limits.memory=8GiB` |
-| Remove a base | `incus delete -f pb-arch` (dishes are full copies and keep working); `petribox new --from arch` rebuilds it when needed |
+| Remove a base | `petribox delete pb-arch` or `incus delete -f pb-arch` (dishes are full copies and keep working); `petribox new --from arch` rebuilds it when needed |
 | Remove an image | `incus image list`, `incus image delete kali-qemu` (images from `images:` are a cache Incus expires by itself) |
 
 ## When something fails

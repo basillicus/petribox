@@ -14,6 +14,8 @@ import tempfile
 import time
 from pathlib import Path
 
+from rich.prompt import Confirm
+
 from . import __version__, bootstrap, export, hints, incus, recipes, secrets, ui, wizard
 from .ui import fail
 
@@ -245,7 +247,7 @@ def cmd_new(args) -> None:
     if "ssh" in [e.name for e, _ in recipes.resolve_extras((r.extras if r else []) + extras)]:
         ssh_hint(args.name, user)
     ui.hint("Share", f"petribox mount {args.name} ./dir")
-    ui.hint("Delete", f"incus delete -f {args.name}")
+    ui.hint("Delete", f"petribox delete {args.name}")
 
 
 def ssh_hint(name: str, user: str) -> None:
@@ -406,6 +408,60 @@ def cmd_import_image(args) -> None:
         incus.run("image", "import", str(meta), str(disk), "--alias", args.alias, capture=False)
 
 
+def instance_status(name: str) -> str:
+    if not incus.exists(name):
+        fail(f"no such instance: {name}")
+    return json.loads(incus.run("query", f"/1.0/instances/{name}").stdout or "{}").get("status", "")
+
+
+def cmd_start(args) -> None:
+    """`incus start NAME...`, skipping the ones already running."""
+    for name in args.names:
+        if instance_status(name) == "Running":
+            ui.info(f"{name} is already running")
+            continue
+        ui.info(f"incus start {name}")
+        incus.run("start", name)
+        ui.ok(f"{name} started")
+
+
+def cmd_stop(args) -> None:
+    """`incus stop NAME...`: like `incus stop --timeout 60`, then `--force` if
+    the guest ignores the request (disks are synced first)."""
+    for name in args.names:
+        if instance_status(name) != "Running":
+            ui.info(f"{name} is not running")
+            continue
+        ephemeral = incus.run("query", f"/1.0/instances/{name}").stdout.find('"ephemeral":true') >= 0
+        if args.force:
+            ui.info(f"incus stop --force {name}")
+            incus.run("stop", "--force", name)
+        else:
+            ui.info(f"incus stop --timeout 60 {name}")
+            if not incus.stop(name):
+                ui.warn(f"{name} ignored the shutdown request; stopped with --force")
+        ui.ok(f"{name} stopped" + (" and deleted (ephemeral)" if ephemeral else ""))
+
+
+def cmd_delete(args) -> None:
+    """`incus delete --force NAME...`: stops and removes, with everything in it."""
+    for name in args.names:
+        instance_status(name)  # fails on a name that does not exist
+    if not args.yes:
+        if not sys.stdin.isatty():
+            fail("deleting cannot be undone; pass --yes to confirm")
+        if not Confirm.ask(f"Delete {', '.join(args.names)} and everything in "
+                           f"{'them' if len(args.names) > 1 else 'it'}?", default=False):
+            ui.warn("Cancelled")
+            return
+    for name in args.names:
+        ui.info(f"incus delete --force {name}")
+        incus.run("delete", "--force", name)
+        ui.ok(f"{name} deleted")
+        if name.startswith(recipes.BASE_PREFIX):
+            ui.info(f"The next petribox new --from {name.removeprefix(recipes.BASE_PREFIX)} builds it again.")
+
+
 def cmd_shell(args) -> None:
     user = dish_user(args.name)
     argv = ["incus", "exec", args.name, "--", "su", "-", user]
@@ -477,6 +533,21 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("name")
     p.add_argument("extras", nargs="+", metavar="EXTRA", help="NAME or NAME@VERSION (see `petribox extras`)")
     p.set_defaults(func=cmd_add)
+
+    p = sub.add_parser("start", help="start dishes (incus start NAME)")
+    p.add_argument("names", nargs="+", metavar="NAME")
+    p.set_defaults(func=cmd_start)
+
+    p = sub.add_parser("stop", help="stop dishes; ephemeral ones are deleted (incus stop --timeout 60 NAME, "
+                                    "then --force if the guest ignores it)")
+    p.add_argument("names", nargs="+", metavar="NAME")
+    p.add_argument("-f", "--force", action="store_true", help="do not wait for a clean shutdown (incus stop --force)")
+    p.set_defaults(func=cmd_stop)
+
+    p = sub.add_parser("delete", help="delete dishes or bases, after a question (incus delete --force NAME)")
+    p.add_argument("names", nargs="+", metavar="NAME")
+    p.add_argument("-y", "--yes", action="store_true", help="do not ask")
+    p.set_defaults(func=cmd_delete)
 
     p = sub.add_parser("list", help="list dishes with their recipe and address")
     p.add_argument("--bases", action="store_true", help="include the pb-* base instances")
