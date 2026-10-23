@@ -10,8 +10,9 @@ petribox does four things on top of Incus:
 4. **dotfiles**: apply your [chezmoi](https://www.chezmoi.io/) repo in each new dish
 
 Everything else is plain `incus` (see [the cheat sheet](#everything-else-is-incus)).
-Linux hosts only, since that's where Incus runs. On macOS or Windows use
-[Vagrant](https://developer.hashicorp.com/vagrant) or [Lima](https://lima-vm.io/).
+Linux hosts only, since that's where Incus runs. For macOS or Windows,
+`petribox export-recipe` writes a recipe as a [Vagrant](https://developer.hashicorp.com/vagrant)
+project or a [Lima](https://lima-vm.io/) template (see [Other platforms](#other-platforms)).
 
 ## Quick start
 
@@ -47,6 +48,7 @@ incus stop try1              # gone
 |---|---|
 | `petribox recipes` | List recipes and whether their base is built |
 | `petribox extras` | List extras: ssh, mise, node, uv, podman and agent CLIs |
+| `petribox export-recipe RECIPE --to vagrant\|lima [-o DIR]` | Write the recipe as a Vagrantfile + provision.sh, or a Lima template |
 | `petribox build RECIPE [--rebuild]` | Create `pb-RECIPE` from the image, run `_common.sh` + `provision.sh` as root, stop it, snapshot `clean` |
 | `petribox new` | Ask: recipe or image, resources, extras, secrets, dotfiles, shared folders; print the equivalent command; offer to save an image setup as a recipe |
 | `petribox new NAME --from RECIPE [--ephemeral] [--extra X]... [--secret KEY]... [--share DIR]... [--cpus N] [--memory 8GiB] [--no-dotfiles]` | `incus copy pb-RECIPE/clean NAME` (building the base first if needed), start, install extras, hand in secrets, apply dotfiles, mount folders |
@@ -100,6 +102,20 @@ a recipe (`extras = [...]`, baked into the base) or for one dish
 as_user 'npm install -g some-agent && mise reshim'
 ```
 
+Pin versions with `NAME@VERSION`, in a recipe or with `--extra`:
+`extras = ["node@24.22.1", "codex@0.164.0", "uv@0.13.5"]`. The script gets
+it as `$VERSION`; extras whose installer has no version option (`ssh`,
+`podman`, `opencode`, `hermes`, `picoclaw`) refuse a pin rather than ignore
+it. Pinned extras give the same tools on every build; the image itself and
+its packages still move. When a dish must be identical for everyone, share
+the built base instead:
+
+```bash
+incus publish pb-webshop/clean --alias webshop-2026-10   # you
+incus image export webshop-2026-10 ./webshop             # a file to hand over
+incus image import ./webshop.tar.gz --alias webshop      # them; recipe: image = "webshop"
+```
+
 The `ssh` extra authorises your `~/.ssh/id_ed25519.pub` (or ecdsa, rsa) for
 the dish user, and `new` then prints the `ssh user@ip` line. The agent
 extras (`claude-code`, `codex`, `opencode`, `pi`, `openclaw`, `hermes`,
@@ -144,6 +160,28 @@ systemctl start incus-agent
 ```
 
 Then finish the build from the host: `petribox build kali --resume`.
+
+## Other platforms
+
+`petribox export-recipe webshop --to vagrant` writes `webshop-vagrant/`
+(`Vagrantfile` and `provision.sh`); `--to lima` writes `webshop.yaml` for
+`limactl start ./webshop.yaml`. The provisioning script is the one
+`petribox build` runs (`_common.sh`, extras, `provision.sh`), so the same
+recipe gives the same tools. The image becomes the matching Vagrant box or
+Lima template (Debian, Ubuntu, Rocky, Alma, Fedora, Arch; Kali for Vagrant
+only); for anything else, set `vagrant_box = "..."` or `lima_template = "..."`
+in the recipe.
+
+What does not carry over: secrets (hand them in your own way), fast copies
+of a base (each machine is set up from scratch), and containers (the export
+is always a VM). The Vagrant user is `vagrant`; in Lima it is your own user
+name. The Lima export uses Lima's image-only templates, so unlike Lima's
+defaults your home directory is **not** mounted into the VM. Some boxes and
+images are x86-only (Kali), which matters on Apple Silicon.
+
+For building images for many targets at once (VirtualBox, VMware, QEMU,
+cloud), use [Packer](https://developer.hashicorp.com/packer) with the same
+`provision.sh`.
 
 ## Secrets and dotfiles
 
@@ -194,5 +232,5 @@ dish) keeps the real key out of the dish.
 ## Tests
 
 ```bash
-uv run --with pytest pytest -q
+uv run --with pytest --with pyyaml pytest -q
 ```

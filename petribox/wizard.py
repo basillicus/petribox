@@ -80,9 +80,9 @@ def ask(args) -> bool:
     if defaults.extras:
         ui.info(f"Already in the recipe: {', '.join(defaults.extras)}")
     while True:
-        picked = Prompt.ask("Extras, comma-separated (blank: none)", default="")
+        picked = Prompt.ask("Extras, comma-separated, NAME@VERSION to pin (blank: none)", default="")
         args.extra = [x.strip() for x in picked.split(",") if x.strip()]
-        unknown = [x for x in args.extra if x not in extras]
+        unknown = [x for x in args.extra if x.partition("@")[0] not in extras]
         if not unknown:
             break
         ui.warn(f"unknown: {', '.join(unknown)}")

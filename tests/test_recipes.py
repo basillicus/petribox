@@ -44,7 +44,7 @@ def test_missing_recipe(tmp_path, monkeypatch):
 
 
 def test_extras_resolve_with_dependencies_first():
-    names = [e.name for e in recipes.resolve_extras(["codex", "ssh", "node"])]
+    names = [e.name for e, _ in recipes.resolve_extras(["codex", "ssh", "node"])]
     assert names == ["mise", "node", "codex", "ssh"]
 
 
@@ -74,3 +74,17 @@ def test_saved_recipe_loads_back(tmp_path, monkeypatch):
     assert (back.image, back.vm, back.extras, back.description) == \
         ("images:debian/13", False, ["ssh", "node"], 'Debian "quick"')
     assert "== extra: mise" in back.script()
+
+
+def test_extras_take_a_pinned_version():
+    resolved = [(e.name, v) for e, v in recipes.resolve_extras(["codex@0.164.0", "node@24.22.1"])]
+    assert resolved == [("mise", ""), ("node", "24.22.1"), ("codex", "0.164.0")]
+    script = recipes.provision_script(["node@24.22.1"])
+    assert "VERSION=24.22.1" in script and "== extra: node@24.22.1" in script
+
+
+def test_extras_that_cannot_be_pinned_say_so():
+    with pytest.raises(recipes.RecipeError, match="cannot be pinned"):
+        recipes.resolve_extras(["ssh@9.9"])
+    with pytest.raises(recipes.RecipeError, match="pinned twice"):
+        recipes.resolve_extras(["node@22", "node@24"])

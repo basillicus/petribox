@@ -14,7 +14,7 @@ import tempfile
 import time
 from pathlib import Path
 
-from . import __version__, incus, recipes, secrets, ui, wizard
+from . import __version__, export, incus, recipes, secrets, ui, wizard
 from .ui import fail
 
 USER_KEY = "user.petribox.user"  # set on the base, so every copy carries it
@@ -211,7 +211,7 @@ def cmd_new(args) -> None:
     if args.ephemeral:
         ui.info("Ephemeral: it is deleted when it stops.")
     ui.hint("Enter", f"petribox shell {args.name}")
-    if "ssh" in [e.name for e in recipes.resolve_extras((r.extras if r else []) + extras)]:
+    if "ssh" in [e.name for e, _ in recipes.resolve_extras((r.extras if r else []) + extras)]:
         addr = ipv4(json.loads(incus.run("query", f"/1.0/instances/{args.name}/state").stdout))
         ui.hint("SSH", f"ssh {user}@{addr or '<ip from petribox list>'}")
     ui.hint("Share", f"petribox mount {args.name} ./dir")
@@ -302,6 +302,20 @@ def mount_dir(name: str, user: str, src: Path, dest: str | None = None,
             ui.warn(f"{dest} is not mounted yet; it will be after a restart")
     ui.ok(f"{src} -> {name}:{dest}")
     ui.hint("Unmount", f"incus config device remove {name} {device}")
+
+
+def cmd_export_recipe(args) -> None:
+    """A recipe as a Vagrant project or a Lima template, for hosts without Incus."""
+    r = recipes.find(args.recipe)
+    out = Path(args.output or (f"{r.name}-vagrant" if args.to == "vagrant" else "."))
+    for path in export.export(r, args.to, out, force=args.force):
+        ui.ok(f"Wrote {path}")
+    if not r.vm:
+        ui.warn(f"'{r.name}' is a container recipe; the export is a VM")
+    if args.to == "vagrant":
+        ui.hint("Start", f"cd {out} && vagrant up")
+    else:
+        ui.hint("Start", f"limactl start {out / (r.name + '.yaml')}")
 
 
 def cmd_import_image(args) -> None:
@@ -403,6 +417,13 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--device", help="Incus device name (default: from the dir name)")
     p.set_defaults(func=cmd_mount)
 
+    p = sub.add_parser("export-recipe", help="write a recipe as a Vagrantfile or a Lima template")
+    p.add_argument("recipe")
+    p.add_argument("--to", choices=["vagrant", "lima"], required=True)
+    p.add_argument("-o", "--output", help="directory (default: ./RECIPE-vagrant, or . for Lima)")
+    p.add_argument("--force", action="store_true", help="overwrite existing files")
+    p.set_defaults(func=cmd_export_recipe)
+
     p = sub.add_parser("import-image", help="turn a VM disk image (qcow2) into a local Incus image")
     p.add_argument("disk")
     p.add_argument("alias", help="name to use as a recipe's image")
@@ -426,7 +447,7 @@ def main(argv: list[str] | None = None) -> None:
     args = build_parser().parse_args(argv)
     try:
         args.func(args)
-    except (incus.IncusError, recipes.RecipeError, secrets.SecretError) as exc:
+    except (incus.IncusError, recipes.RecipeError, secrets.SecretError, export.ExportError) as exc:
         fail(str(exc))
     except KeyboardInterrupt:
         sys.exit(130)

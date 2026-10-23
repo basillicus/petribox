@@ -10,3 +10,4 @@ memory = "8GiB"
 disk = "82GiB"     # the image's virtual disk is 80.1 GiB
 # The image boots with legacy BIOS, not UEFI.
 config = { "security.csm" = "true", "security.secureboot" = "false" }
+vagrant_box = "kalilinux/rolling"   # for export-recipe (Lima has no Kali template)
