@@ -49,6 +49,9 @@ KNOWN = [
     (r"No space left|not enough space|disk quota",
      'Out of disk space: raise disk = "..." in the recipe (or incus config device set '
      "{instance} root size=40GiB), or free space in the storage pool (incus storage info default)"),
+    (r"DNS name .* already used on network",
+     "Another Incus project has an instance with this name on the same network. "
+     "Pick another name; remove the stopped copy first: petribox delete {instance}"),
     (r"already exists",
      "Pick another name, or remove the old one: petribox delete {instance}"),
     (r"Image not found|Couldn't find the requested image|not found in remote",
