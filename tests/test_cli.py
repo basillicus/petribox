@@ -103,3 +103,33 @@ def test_mount_shifts_only_for_containers(fake, tmp_path, monkeypatch):
     add = next(c for c in fake.calls if c[:3] == ("config", "device", "add"))
     assert add[3:6] == ("lab", "my-src", "disk")
     assert f"path=/home/petri/my src" in add and "shift=true" in add
+
+
+def test_new_from_image_sets_up_the_user(fake):
+    fake.config["user.petribox.user"] = "alice"
+    cli.main(["new", "lab", "--image", "images:debian/13", "--user", "alice", "--disk", "40GiB",
+              "--ephemeral", "--no-dotfiles"])
+    init = fake.calls[0]
+    assert init[:3] == ("init", "images:debian/13", "lab")
+    assert "--vm" in init and "--ephemeral" in init and "root,size=40GiB" in init
+    assert "user.petribox.user=alice" in init
+    assert verbs(fake) == ["init", "config device", "start", "exec", "config get"]
+
+
+def test_new_needs_a_source_when_not_interactive(fake, monkeypatch, capsys):
+    monkeypatch.setattr("sys.stdin.isatty", lambda: False)
+    with pytest.raises(SystemExit):
+        cli.main(["new", "lab"])
+    assert "--from RECIPE or --image" in capsys.readouterr().err
+
+
+def test_wizard_prints_a_repeatable_command():
+    from petribox import wizard
+    args = cli.build_parser().parse_args(["new"])
+    args.name, args.image, args.recipe, args.container = "lab", "images:debian/13", None, True
+    args.disk, args.user, args.cpus, args.memory = "20GiB", "petri", 2, "4GiB"
+    args.ephemeral, args.secret, args.share, args.no_dotfiles = True, ["API_KEY"], ["/tmp"], False
+    line = wizard.command_line(args)
+    assert cli.build_parser().parse_args(line.split()[1:]).container
+    assert line == ("petribox new lab --image images:debian/13 --container --disk 20GiB --user petri "
+                    "--cpus 2 --memory 4GiB --ephemeral --secret API_KEY --share /tmp")

@@ -14,7 +14,7 @@ import tempfile
 import time
 from pathlib import Path
 
-from . import __version__, incus, recipes, secrets, ui
+from . import __version__, incus, recipes, secrets, ui, wizard
 from .ui import fail
 
 USER_KEY = "user.petribox.user"  # set on the base, so every copy carries it
@@ -105,29 +105,48 @@ def provision_and_snapshot(r: recipes.Recipe, timeout: float) -> None:
 
 
 def cmd_new(args) -> None:
-    r = recipes.find(args.recipe)
-    if not incus.has_snapshot(r.base, "clean"):
-        fail(f"recipe '{r.name}' is not built yet: petribox build {r.name}")
+    """A dish from a built recipe (--from), straight from an image (--image),
+    or, with neither, from answers to a few questions."""
+    if not (args.recipe or args.image):
+        if not sys.stdin.isatty():
+            fail("give --from RECIPE or --image IMAGE (or run on a terminal to be asked)")
+        if not wizard.ask(args):
+            ui.warn("Cancelled")
+            return
+    elif not args.name:
+        fail("give the dish a name: petribox new NAME --from RECIPE")
+    if args.recipe and args.image:
+        fail("--from and --image are alternatives; pick one")
     if incus.exists(args.name):
         fail(f"'{args.name}' already exists")
+    shares = [Path(d).expanduser().resolve() for d in args.share or []]
+    for d in shares:
+        if not d.is_dir():
+            fail(f"no such directory: {d}")
+    r = recipes.find(args.recipe) if args.recipe else None
+    if r and not incus.has_snapshot(r.base, "clean"):
+        fail(f"recipe '{r.name}' is not built yet: petribox build {r.name}")
 
-    # Resolve secrets before the copy, so a prompt or a failing command
-    # happens before anything is created.
+    # Resolve secrets before anything is created, so a prompt or a failing
+    # command costs nothing.
     env = {key: secrets.resolve(key) for key in args.secret or []}
 
-    copy = ["copy", f"{r.base}/clean", args.name, "-c", f"{RECIPE_KEY}={r.name}"]
-    if args.ephemeral:
-        copy.append("--ephemeral")
+    limits = []
     if args.cpus:
-        copy += ["-c", f"limits.cpu={args.cpus}"]
+        limits += ["-c", f"limits.cpu={args.cpus}"]
     if args.memory:
-        copy += ["-c", f"limits.memory={args.memory}"]
-    with ui.spinner(f"Creating {args.name} from {r.base}/clean..."):
-        incus.run(*copy)
-        incus.run("start", args.name)
-    ui.ok(f"{args.name} created ({'vm' if r.vm else 'container'}, recipe {r.name})")
-    with ui.spinner(f"Waiting for {args.name} to boot..."):
-        incus.wait_for_agent(args.name)
+        limits += ["-c", f"limits.memory={args.memory}"]
+    if r:
+        copy = ["copy", f"{r.base}/clean", args.name, "-c", f"{RECIPE_KEY}={r.name}", *limits]
+        copy += ["--ephemeral"] if args.ephemeral else []
+        with ui.spinner(f"Creating {args.name} from {r.base}/clean..."):
+            incus.run(*copy)
+            incus.run("start", args.name)
+        ui.ok(f"{args.name} created ({'vm' if r.vm else 'container'}, recipe {r.name})")
+        with ui.spinner(f"Waiting for {args.name} to boot..."):
+            incus.wait_for_agent(args.name)
+    else:
+        launch_from_image(args, limits)
 
     user = dish_user(args.name)
     if env:
@@ -136,6 +155,8 @@ def cmd_new(args) -> None:
     repo = (secrets.user_config().get("dotfiles") or {}).get("repo")
     if repo and not args.no_dotfiles:
         apply_dotfiles(args.name, user, repo)
+    for d in shares:
+        mount_dir(args.name, user, d)
 
     ui.ok(f"Dish '{args.name}' is ready")
     if args.ephemeral:
@@ -143,6 +164,30 @@ def cmd_new(args) -> None:
     ui.hint("Enter", f"petribox shell {args.name}")
     ui.hint("Share", f"petribox mount {args.name} ./dir")
     ui.hint("Delete", f"incus delete -f {args.name}")
+
+
+def launch_from_image(args, limits: list[str]) -> None:
+    """No recipe, no base: the image itself, set up with `_common.sh` only.
+    Slower per dish than a recipe (packages install every time)."""
+    vm = not args.container
+    user = args.user or "petri"
+    init = ["init", args.image, args.name, *limits, "-c", f"{USER_KEY}={user}",
+            "-c", f"{RECIPE_KEY}={args.image}"]
+    init += ["-d", f"root,size={args.disk}"] if args.disk else []
+    init += ["--vm"] if vm else []
+    init += ["--ephemeral"] if args.ephemeral else []
+    ui.step(f"{args.name}: creating from {args.image}")
+    incus.run(*init, capture=False)  # shows the image download progress
+    if vm:
+        incus.run("config", "device", "add", args.name, "agent", "disk", "source=agent:config",
+                  check=False)
+    incus.run("start", args.name)
+    with ui.spinner(f"Waiting for {args.name} to boot..."):
+        incus.wait_for_agent(args.name)
+    ui.step(f"{args.name}: setting up user '{user}'")
+    script = (recipes.BUILTIN / "_common.sh").read_text()
+    incus.run("exec", args.name, "--env", f"PB_USER={user}", "--", "bash", "-s",
+              input=script, capture=False)
 
 
 def apply_dotfiles(name: str, user: str, repo: str) -> None:
@@ -182,31 +227,33 @@ def cmd_list(args) -> None:
 
 
 def cmd_mount(args) -> None:
-    """Share a host directory into a dish (an Incus disk device)."""
     src = Path(args.source).expanduser().resolve()
     if not src.is_dir():
         fail(f"no such directory: {src}")
-    user = dish_user(args.name)
-    dest = args.dest
+    mount_dir(args.name, dish_user(args.name), src, args.dest, args.device)
+
+
+def mount_dir(name: str, user: str, src: Path, dest: str | None = None,
+              device: str | None = None) -> None:
+    """Share a host directory into a dish (an Incus disk device)."""
     if not dest:
-        home = incus.run("exec", args.name, "--", "getent", "passwd", user).stdout.split(":")[5]
+        home = incus.run("exec", name, "--", "getent", "passwd", user).stdout.split(":")[5]
         dest = f"{home}/{src.name}"
-    device = args.device or re.sub(r"[^A-Za-z0-9-]", "-", src.name).strip("-") or "share"
-    disk = ["config", "device", "add", args.name, device, "disk",
-            f"source={src}", f"path={dest}"]
-    if json.loads(incus.run("query", f"/1.0/instances/{args.name}").stdout).get("type") == "container":
+    device = device or re.sub(r"[^A-Za-z0-9-]", "-", src.name).strip("-") or "share"
+    disk = ["config", "device", "add", name, device, "disk", f"source={src}", f"path={dest}"]
+    if json.loads(incus.run("query", f"/1.0/instances/{name}").stdout).get("type") == "container":
         disk.append("shift=true")  # map host ownership onto the container's users
     incus.run(*disk)
     # In a running VM the agent mounts it a few seconds later; wait for that.
     with ui.spinner(f"Mounting {dest}..."):
         for _ in range(30):
-            if incus.run("exec", args.name, "--", "mountpoint", "-q", dest, check=False).returncode == 0:
+            if incus.run("exec", name, "--", "mountpoint", "-q", dest, check=False).returncode == 0:
                 break
             time.sleep(1)
         else:
             ui.warn(f"{dest} is not mounted yet; it will be after a restart")
-    ui.ok(f"{src} -> {args.name}:{dest}")
-    ui.hint("Unmount", f"incus config device remove {args.name} {device}")
+    ui.ok(f"{src} -> {name}:{dest}")
+    ui.hint("Unmount", f"incus config device remove {name} {device}")
 
 
 def cmd_import_image(args) -> None:
@@ -277,13 +324,19 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--timeout", type=float, default=300, help="seconds to wait for the agent")
     p.set_defaults(func=cmd_build)
 
-    p = sub.add_parser("new", help="make a dish from a built recipe")
-    p.add_argument("name")
-    p.add_argument("--from", dest="recipe", required=True, metavar="RECIPE")
+    p = sub.add_parser("new", help="make a dish (no arguments: answer a few questions)")
+    p.add_argument("name", nargs="?")
+    src = p.add_argument_group("source (neither: interactive)")
+    src.add_argument("--from", dest="recipe", metavar="RECIPE", help="a built recipe")
+    src.add_argument("--image", help="any Incus image, set up on the spot, e.g. images:debian/13")
+    p.add_argument("--container", action="store_true", help="with --image: a container, not a VM")
     p.add_argument("--ephemeral", action="store_true", help="delete the dish when it stops")
     p.add_argument("--secret", action="append", metavar="KEY", help="hand in a secret (repeatable)")
-    p.add_argument("--cpus", type=int, help="override the recipe's CPU limit")
-    p.add_argument("--memory", help="override the recipe's memory limit, e.g. 8GiB")
+    p.add_argument("--share", action="append", metavar="DIR", help="mount a host folder (repeatable)")
+    p.add_argument("--cpus", type=int, help="CPU limit (default: the recipe's)")
+    p.add_argument("--memory", help="memory limit, e.g. 8GiB (default: the recipe's)")
+    p.add_argument("--disk", help="with --image: root disk size, e.g. 40GiB")
+    p.add_argument("--user", help="with --image: the dish user (default: petri)")
     p.add_argument("--no-dotfiles", action="store_true", help="skip [dotfiles] from the config")
     p.set_defaults(func=cmd_new)
 

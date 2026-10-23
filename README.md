@@ -23,6 +23,12 @@ petribox new lab --from rocky
 petribox shell lab
 ```
 
+Quick test without writing a recipe (or run `petribox new` and answer the questions):
+
+```bash
+petribox new try1 --image images:debian/13 --ephemeral --share ./project
+```
+
 Throwaway dish that deletes itself when it stops:
 
 ```bash
@@ -36,7 +42,9 @@ incus stop try1              # gone
 |---|---|
 | `petribox recipes` | List recipes and whether their base is built |
 | `petribox build RECIPE [--rebuild]` | Create `pb-RECIPE` from the image, run `_common.sh` + `provision.sh` as root, stop it, snapshot `clean` |
-| `petribox new NAME --from RECIPE [--ephemeral] [--secret KEY]... [--cpus N] [--memory 8GiB] [--no-dotfiles]` | `incus copy pb-RECIPE/clean NAME`, start, hand in secrets, apply dotfiles |
+| `petribox new` | Ask: recipe or image, resources, ephemeral, secrets, dotfiles, shared folders; then print the equivalent command |
+| `petribox new NAME --from RECIPE [--ephemeral] [--secret KEY]... [--share DIR]... [--cpus N] [--memory 8GiB] [--no-dotfiles]` | `incus copy pb-RECIPE/clean NAME`, start, hand in secrets, apply dotfiles, mount folders |
+| `petribox new NAME --image IMAGE [--container] [--disk 40GiB] [--user U] ...` | No recipe: launch the image and set up the user on the spot (slower per dish; use a recipe for anything you repeat) |
 | `petribox list [--bases]` | Your dishes with recipe, state and IPv4 (`--bases` adds the `pb-*` bases) |
 | `petribox shell NAME [CMD...]` | Login shell (or one command) as the dish user |
 | `petribox mount NAME DIR [DEST]` | Share a host directory, by default at `~user/<dir name>`; remove with `incus config device remove NAME <device>` |
