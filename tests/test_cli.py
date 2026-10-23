@@ -204,3 +204,18 @@ def test_delete_checks_every_name_before_deleting_any(fake):
     with pytest.raises(SystemExit):
         cli.main(["delete", "lab", "nope", "--yes"])
     assert not any(c[0] == "delete" for c in fake.calls)
+
+
+def test_query_follows_the_current_project(monkeypatch):
+    seen = []
+
+    def fake_run(argv, **kw):
+        seen.append(argv)
+        out = "demo\n" if argv[1:3] == ["project", "get-current"] else "{}"
+        return types.SimpleNamespace(returncode=0, stdout=out, stderr="")
+
+    monkeypatch.setattr(incus.subprocess, "run", fake_run)
+    incus.current_project.cache_clear()
+    incus.run("query", "/1.0/instances/lab")
+    incus.current_project.cache_clear()
+    assert seen[-1] == ["incus", "query", "--project", "demo", "/1.0/instances/lab"]

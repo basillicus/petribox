@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import functools
 import subprocess
 import time
 
@@ -19,6 +20,10 @@ def run(*args: str, input: str | None = None, capture: bool | str = True,
     (provisioning logs) go straight to the terminal; capture="stderr" shows
     stdout (image download progress) but keeps the error text for the message.
     """
+    if args[:1] == ("query",):
+        # `incus query` takes the raw API path and ignores the current project
+        # (`incus project switch`) unless it is passed explicitly.
+        args = ("query", "--project", current_project(), *args[1:])
     try:
         proc = subprocess.run(
             ["incus", *args], input=input, text=True,
@@ -32,6 +37,16 @@ def run(*args: str, input: str | None = None, capture: bool | str = True,
         msg = (proc.stderr or "").strip().removeprefix("Error: ") if capture else ""
         raise IncusError(msg or f"`incus {' '.join(args[:3])}` failed (exit {proc.returncode})")
     return proc
+
+
+@functools.cache
+def current_project() -> str:
+    try:
+        proc = subprocess.run(["incus", "project", "get-current"], capture_output=True,
+                              text=True, stdin=subprocess.DEVNULL)
+    except FileNotFoundError as exc:
+        raise IncusError("incus is not installed or not on PATH") from exc
+    return proc.stdout.strip() if proc.returncode == 0 and proc.stdout.strip() else "default"
 
 
 def exists(name: str) -> bool:
