@@ -14,7 +14,7 @@ import tempfile
 import time
 from pathlib import Path
 
-from . import __version__, export, incus, recipes, secrets, ui, wizard
+from . import __version__, export, hints, incus, recipes, secrets, ui, wizard
 from .ui import fail
 
 USER_KEY = "user.petribox.user"  # set on the base, so every copy carries it
@@ -36,7 +36,7 @@ def create(init: list[str], name: str) -> None:
     """`incus init`, removing a half-created instance if it fails, so the
     next attempt does not trip over it."""
     try:
-        incus.run(*init, capture=False)  # shows the image download progress
+        incus.run(*init, capture="stderr")  # shows the image download progress
     except incus.IncusError:
         if incus.exists(name):
             incus.run("delete", "--force", name, check=False)
@@ -70,6 +70,7 @@ def cmd_build(args) -> None:
 def build_base(r: recipes.Recipe, rebuild: bool = False, resume: bool = False,
                timeout: float = 300) -> None:
     """Plain image -> provisioned base instance, stopped, with a `clean` snapshot."""
+    hints.context(instance=r.base, recipe=r.name, phase="create")
     if resume:
         # Finish a build that stopped at the agent (e.g. after installing it by hand).
         if not incus.exists(r.base):
@@ -112,7 +113,9 @@ def provision_and_snapshot(r: recipes.Recipe, timeout: float) -> None:
              f"(see README, 'Images without an agent'), then: petribox build {r.name} --resume")
 
     ui.step(f"{r.base}: provisioning")
+    hints.context(phase="provision")
     run_script(r.base, r.user, r.script())
+    hints.context(phase="snapshot")
 
     ui.step(f"{r.base}: snapshot 'clean'")
     # Some guests (Kali's desktop image) ignore the ACPI shutdown request, so
@@ -182,6 +185,7 @@ def cmd_new(args) -> None:
         fail("give the dish a name: petribox new NAME --from RECIPE")
     if args.recipe and args.image:
         fail("--from and --image are alternatives; pick one")
+    hints.context(instance=args.name, recipe=args.recipe or "", phase="create")
     if incus.exists(args.name):
         fail(f"'{args.name}' already exists")
     shares = [Path(d).expanduser().resolve() for d in args.share or []]
@@ -214,8 +218,10 @@ def cmd_new(args) -> None:
         ui.ok(f"{args.name} created ({'vm' if r.vm else 'container'}, recipe {r.name})")
         with ui.spinner(f"Waiting for {args.name} to boot..."):
             incus.wait_for_agent(args.name)
+        hints.context(instance=args.name, phase="create")
         if extras:
             ui.step(f"{args.name}: extras {', '.join(extras)}")
+            hints.context(phase="provision")
             run_script(args.name, dish_user(args.name), recipes.provision_script(extras))
     else:
         launch_from_image(args, limits, extras)
@@ -261,6 +267,7 @@ def launch_from_image(args, limits: list[str], extras: list[str]) -> None:
     with ui.spinner(f"Waiting for {args.name} to boot..."):
         incus.wait_for_agent(args.name)
     ui.step(f"{args.name}: setting up user '{user}'" + (f", extras {', '.join(extras)}" if extras else ""))
+    hints.context(phase="provision")
     run_script(args.name, user, recipes.provision_script(extras))
 
 
@@ -469,6 +476,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> None:
     args = build_parser().parse_args(argv)
+    hints.reset()
     try:
         args.func(args)
     except (incus.IncusError, recipes.RecipeError, secrets.SecretError, export.ExportError) as exc:

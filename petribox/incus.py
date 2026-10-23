@@ -10,23 +10,26 @@ class IncusError(RuntimeError):
     """An `incus` invocation failed."""
 
 
-def run(*args: str, input: str | None = None, capture: bool = True,
+def run(*args: str, input: str | None = None, capture: bool | str = True,
         check: bool = True) -> subprocess.CompletedProcess:
     """Run `incus <args>`.
 
     Without input, stdin is /dev/null: some incus commands read YAML from a
     non-tty stdin and would otherwise wait forever. capture=False lets output
-    (image download progress, provisioning logs) go straight to the terminal.
+    (provisioning logs) go straight to the terminal; capture="stderr" shows
+    stdout (image download progress) but keeps the error text for the message.
     """
     try:
         proc = subprocess.run(
-            ["incus", *args], input=input, text=True, capture_output=capture,
+            ["incus", *args], input=input, text=True,
+            stdout=subprocess.PIPE if capture is True else None,
+            stderr=subprocess.PIPE if capture else None,
             stdin=subprocess.DEVNULL if input is None else None,
         )
     except FileNotFoundError as exc:
         raise IncusError("incus is not installed or not on PATH") from exc
     if check and proc.returncode != 0:
-        msg = (proc.stderr or "").strip() if capture else ""
+        msg = (proc.stderr or "").strip().removeprefix("Error: ") if capture else ""
         raise IncusError(msg or f"`incus {' '.join(args[:3])}` failed (exit {proc.returncode})")
     return proc
 

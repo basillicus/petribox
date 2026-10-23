@@ -225,6 +225,19 @@ dish) keeps the real key out of the dish.
 | Export, import | `incus export lab lab.tar.gz`, `incus import lab.tar.gz` |
 | Move to another Incus host | `incus remote add other https://other.example.org:8443`, `incus move lab other:` |
 | Resize | `incus config set lab limits.cpu=4 limits.memory=8GiB` |
+| Remove a base | `incus delete -f pb-arch` (dishes are full copies and keep working); `petribox new --from arch` rebuilds it when needed |
+| Remove an image | `incus image list`, `incus image delete kali-qemu` (images from `images:` are a cache Incus expires by itself) |
+
+## When something fails
+
+Every error ends with what to try: known problems (Secure Boot, idmap,
+missing agent, no network, package keyrings, full disk, ...) get their fix,
+and every error gets the general moves: the instance log
+(`incus info --show-log NAME`), its screen (`incus console NAME --type=vga`),
+a root shell (`incus exec NAME -- bash`), and where settings go (a recipe's
+`config = {...}` or `incus config set NAME key=value`). A failed build keeps
+the base: fix the recipe, then `petribox build RECIPE --resume` to run the
+setup again on it, or `--rebuild` to start over.
 
 ## Host setup notes
 

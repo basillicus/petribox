@@ -14,8 +14,9 @@ from rich.markup import escape
 from rich.table import Table
 from rich.text import Text  # noqa: F401  (re-exported for cells)
 
-console = Console(highlight=False)
-err_console = Console(stderr=True, highlight=False)
+# soft_wrap: long commands and paths stay one line, so they copy-paste whole.
+console = Console(highlight=False, soft_wrap=True)
+err_console = Console(stderr=True, highlight=False, soft_wrap=True)
 
 
 def step(msg: str) -> None:
@@ -40,8 +41,15 @@ def hint(label: str, command: str) -> None:
     console.print(f"[dim]{escape(label)}:[/dim] [cyan]{escape(command)}[/cyan]")
 
 
-def fail(msg: str) -> None:
+def error(msg: str) -> None:
     err_console.print(f"[bold red]Error:[/bold red] {escape(msg)}")
+
+
+def fail(msg: str) -> None:
+    """Report and exit; hints about what to do next are shown first."""
+    from . import hints  # hints uses this module
+    error(msg)
+    hints.show(msg)
     sys.exit(1)
 
 
