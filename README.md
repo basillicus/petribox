@@ -24,10 +24,14 @@ petribox new lab --from rocky --extra ssh --extra codex
 petribox shell lab
 ```
 
+![A dish from a built recipe: recipes, new, a command inside, list, stop](docs/demo/quickstart.gif)
+
 Or run `petribox new` with no arguments and answer the questions: recipe or
 image, size, extras, secrets, shared folders. It prints the equivalent
 command, and after an image choice it offers to save the answers as a
 recipe, so the next dish like it is a fast copy.
+
+![petribox new with no arguments: the questions, then the equivalent command](docs/demo/wizard.gif)
 
 Quick test without writing a recipe:
 
@@ -41,6 +45,13 @@ Throwaway dish that deletes itself when it stops:
 petribox new try1 --from debian --ephemeral
 petribox stop try1           # gone
 ```
+
+Day to day: add tools to a dish, hand in a secret, share a folder, SSH in, delete:
+
+![petribox add, secret, mount, ssh and delete](docs/demo/daily.gif)
+
+The same as one terminal recording, with text you can copy:
+`asciinema play docs/demo/tutorial.cast` ([how the recordings are made](docs/demo/README.md)).
 
 ## Commands
 
