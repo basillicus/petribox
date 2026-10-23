@@ -41,18 +41,23 @@ def cmd_recipes(args) -> None:
 
 
 def cmd_build(args) -> None:
+    build_base(recipes.find(args.recipe), rebuild=args.rebuild, resume=args.resume,
+               timeout=args.timeout)
+
+
+def build_base(r: recipes.Recipe, rebuild: bool = False, resume: bool = False,
+               timeout: float = 300) -> None:
     """Plain image -> provisioned base instance, stopped, with a `clean` snapshot."""
-    r = recipes.find(args.recipe)
-    if args.resume:
+    if resume:
         # Finish a build that stopped at the agent (e.g. after installing it by hand).
         if not incus.exists(r.base):
             fail(f"nothing to resume: {r.base} does not exist")
         if incus.run("info", r.base).stdout.find("Status: RUNNING") < 0:
             incus.run("start", r.base)
-        provision_and_snapshot(r, args.timeout)
+        provision_and_snapshot(r, timeout)
         return
     if incus.exists(r.base):
-        if not args.rebuild:
+        if not rebuild:
             fail(f"{r.base} already exists; pass --rebuild to start it over, or --resume")
         incus.run("delete", "--force", r.base)
 
@@ -72,7 +77,7 @@ def cmd_build(args) -> None:
         incus.run("config", "device", "add", r.base, "agent", "disk", "source=agent:config",
                   check=False)
     incus.run("start", r.base)
-    provision_and_snapshot(r, args.timeout)
+    provision_and_snapshot(r, timeout)
 
 
 def provision_and_snapshot(r: recipes.Recipe, timeout: float) -> None:
@@ -84,8 +89,7 @@ def provision_and_snapshot(r: recipes.Recipe, timeout: float) -> None:
              f"(see README, 'Images without an agent'), then: petribox build {r.name} --resume")
 
     ui.step(f"{r.base}: provisioning")
-    incus.run("exec", r.base, "--env", f"PB_USER={r.user}", "--", "bash", "-s",
-              input=r.script(), capture=False)
+    run_script(r.base, r.user, r.script())
 
     ui.step(f"{r.base}: snapshot 'clean'")
     # Some guests (Kali's desktop image) ignore the ACPI shutdown request, so
@@ -101,7 +105,45 @@ def provision_and_snapshot(r: recipes.Recipe, timeout: float) -> None:
         incus.run("snapshot", "delete", r.base, "clean")
     incus.run("snapshot", "create", r.base, "clean")
     ui.ok(f"{r.base} built")
-    ui.hint("Make a dish", f"petribox new <name> --from {r.name}")
+
+
+def run_script(name: str, user: str, script: str) -> None:
+    """Run a provisioning script as root. It goes in as a file, not on stdin,
+    so a command in it that reads stdin cannot swallow the rest."""
+    path = "/var/tmp/petribox-provision.sh"
+    incus.run("exec", name, "--", "sh", "-c", f"umask 077 && cat > {path}", input=script)
+    env = ["--env", f"PB_USER={user}"]
+    key = host_ssh_key()
+    if key:
+        env += ["--env", f"PB_SSH_KEY={key}"]  # a public key: fine on argv
+    try:
+        incus.run("exec", name, *env, "--", "bash", path, capture=False)
+    finally:
+        incus.run("exec", name, "--", "rm", "-f", path, check=False)
+
+
+def host_ssh_key() -> str:
+    for kind in ("ed25519", "ecdsa", "rsa"):
+        pub = Path.home() / ".ssh" / f"id_{kind}.pub"
+        if pub.is_file():
+            return pub.read_text().strip()
+    return ""
+
+
+def ipv4(inst: dict) -> str:
+    """First IPv4 of an instance (from `incus list` or a state query)."""
+    network = (inst.get("state") or inst).get("network") or {}
+    for nic, net in network.items():
+        for addr in net.get("addresses", []) if nic != "lo" else []:
+            if addr.get("family") == "inet":
+                return addr["address"]
+    return ""
+
+
+def cmd_extras(args) -> None:
+    ui.table([("Extra", "cyan"), ("Needs", "dim"), ("Description", "")],
+             [(e.name, " ".join(e.needs), e.description) for e in recipes.all_extras().values()],
+             title="Extras (recipe: extras = [...]; one dish: petribox new ... --extra NAME)")
 
 
 def cmd_new(args) -> None:
@@ -124,12 +166,16 @@ def cmd_new(args) -> None:
         if not d.is_dir():
             fail(f"no such directory: {d}")
     r = recipes.find(args.recipe) if args.recipe else None
-    if r and not incus.has_snapshot(r.base, "clean"):
-        fail(f"recipe '{r.name}' is not built yet: petribox build {r.name}")
+    extras = args.extra or []
+    recipes.resolve_extras(extras)  # unknown names fail now, not after the copy
 
     # Resolve secrets before anything is created, so a prompt or a failing
     # command costs nothing.
     env = {key: secrets.resolve(key) for key in args.secret or []}
+
+    if r and not incus.has_snapshot(r.base, "clean"):
+        ui.info(f"Recipe '{r.name}' has no base yet; building it once (a few minutes).")
+        build_base(r, rebuild=incus.exists(r.base))
 
     limits = []
     if args.cpus:
@@ -145,8 +191,11 @@ def cmd_new(args) -> None:
         ui.ok(f"{args.name} created ({'vm' if r.vm else 'container'}, recipe {r.name})")
         with ui.spinner(f"Waiting for {args.name} to boot..."):
             incus.wait_for_agent(args.name)
+        if extras:
+            ui.step(f"{args.name}: extras {', '.join(extras)}")
+            run_script(args.name, dish_user(args.name), recipes.provision_script(extras))
     else:
-        launch_from_image(args, limits)
+        launch_from_image(args, limits, extras)
 
     user = dish_user(args.name)
     if env:
@@ -162,11 +211,14 @@ def cmd_new(args) -> None:
     if args.ephemeral:
         ui.info("Ephemeral: it is deleted when it stops.")
     ui.hint("Enter", f"petribox shell {args.name}")
+    if "ssh" in [e.name for e in recipes.resolve_extras((r.extras if r else []) + extras)]:
+        addr = ipv4(json.loads(incus.run("query", f"/1.0/instances/{args.name}/state").stdout))
+        ui.hint("SSH", f"ssh {user}@{addr or '<ip from petribox list>'}")
     ui.hint("Share", f"petribox mount {args.name} ./dir")
     ui.hint("Delete", f"incus delete -f {args.name}")
 
 
-def launch_from_image(args, limits: list[str]) -> None:
+def launch_from_image(args, limits: list[str], extras: list[str]) -> None:
     """No recipe, no base: the image itself, set up with `_common.sh` only.
     Slower per dish than a recipe (packages install every time)."""
     vm = not args.container
@@ -184,10 +236,8 @@ def launch_from_image(args, limits: list[str]) -> None:
     incus.run("start", args.name)
     with ui.spinner(f"Waiting for {args.name} to boot..."):
         incus.wait_for_agent(args.name)
-    ui.step(f"{args.name}: setting up user '{user}'")
-    script = (recipes.BUILTIN / "_common.sh").read_text()
-    incus.run("exec", args.name, "--env", f"PB_USER={user}", "--", "bash", "-s",
-              input=script, capture=False)
+    ui.step(f"{args.name}: setting up user '{user}'" + (f", extras {', '.join(extras)}" if extras else ""))
+    run_script(args.name, user, recipes.provision_script(extras))
 
 
 def apply_dotfiles(name: str, user: str, repo: str) -> None:
@@ -212,12 +262,10 @@ def cmd_list(args) -> None:
         if is_base and not args.bases:
             continue
         recipe = conf.get(RECIPE_KEY) or (inst["name"].removeprefix(recipes.BASE_PREFIX) if is_base else "?")
-        ipv4 = [a["address"] for nic, net in ((inst.get("state") or {}).get("network") or {}).items()
-                if nic != "lo" for a in net.get("addresses", []) if a.get("family") == "inet"]
         kind = "vm" if inst.get("type") == "virtual-machine" else "container"
         notes = ", ".join(n for n, on in (("base", is_base), ("ephemeral", inst.get("ephemeral"))) if on)
         rows.append((inst["name"], recipe, kind, ui.state(inst["status"]),
-                     ipv4[0] if ipv4 else "-", notes))
+                     ipv4(inst) or "-", notes))
     if not rows:
         ui.warn("No dishes")
         ui.hint("Make one", "petribox new NAME --from RECIPE")
@@ -317,6 +365,9 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("recipes", help="list recipes and whether their base is built")
     p.set_defaults(func=cmd_recipes)
 
+    p = sub.add_parser("extras", help="list extras (ssh, mise, node, agents, ...)")
+    p.set_defaults(func=cmd_extras)
+
     p = sub.add_parser("build", help="build a recipe's base instance and its 'clean' snapshot")
     p.add_argument("recipe")
     p.add_argument("--rebuild", action="store_true", help="delete an existing base first")
@@ -333,6 +384,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--ephemeral", action="store_true", help="delete the dish when it stops")
     p.add_argument("--secret", action="append", metavar="KEY", help="hand in a secret (repeatable)")
     p.add_argument("--share", action="append", metavar="DIR", help="mount a host folder (repeatable)")
+    p.add_argument("--extra", action="append", metavar="NAME", help="install an extra (repeatable; see `petribox extras`)")
     p.add_argument("--cpus", type=int, help="CPU limit (default: the recipe's)")
     p.add_argument("--memory", help="memory limit, e.g. 8GiB (default: the recipe's)")
     p.add_argument("--disk", help="with --image: root disk size, e.g. 40GiB")

@@ -38,7 +38,9 @@ def test_build_provisions_then_snapshots(fake):
     init = fake.calls[0]
     assert init[:3] == ("init", "images:rockylinux/9", "pb-rocky") and "--vm" in init
     assert "user.petribox.user=petri" in init
-    assert verbs(fake) == ["init", "config device", "start", "exec", "exec", "stop", "snapshot create"]
+    # script in, run, removed; sync; stop; snapshot
+    assert verbs(fake) == ["init", "config device", "start", "exec", "exec", "exec", "exec",
+                           "stop", "snapshot create"]
 
 
 def test_build_refuses_existing_base(fake):
@@ -57,9 +59,18 @@ def test_new_copies_clean_snapshot(fake):
     assert "--ephemeral" in copy and "limits.memory=8GiB" in copy
 
 
-def test_new_needs_a_built_recipe(fake):
+def test_new_builds_a_missing_base_first(fake):
+    fake.config["user.petribox.user"] = "petri"
+    cli.main(["new", "lab", "--from", "rocky", "--no-dotfiles"])
+    assert verbs(fake)[0] == "init" and fake.calls[0][2] == "pb-rocky"
+    assert ("snapshot", "create", "pb-rocky", "clean") in fake.calls
+    assert any(c[:2] == ("copy", "pb-rocky/clean") for c in fake.calls)
+
+
+def test_unknown_extra_fails_before_anything_is_created(fake):
+    fake.snapshots.add(("pb-rocky", "clean"))
     with pytest.raises(SystemExit):
-        cli.main(["new", "lab", "--from", "rocky"])
+        cli.main(["new", "lab", "--from", "rocky", "--extra", "nope"])
     assert fake.calls == []
 
 
@@ -113,7 +124,7 @@ def test_new_from_image_sets_up_the_user(fake):
     assert init[:3] == ("init", "images:debian/13", "lab")
     assert "--vm" in init and "--ephemeral" in init and "root,size=40GiB" in init
     assert "user.petribox.user=alice" in init
-    assert verbs(fake) == ["init", "config device", "start", "exec", "config get"]
+    assert verbs(fake) == ["init", "config device", "start", "exec", "exec", "exec", "config get"]
 
 
 def test_new_needs_a_source_when_not_interactive(fake, monkeypatch, capsys):
@@ -129,7 +140,8 @@ def test_wizard_prints_a_repeatable_command():
     args.name, args.image, args.recipe, args.container = "lab", "images:debian/13", None, True
     args.disk, args.user, args.cpus, args.memory = "20GiB", "petri", 2, "4GiB"
     args.ephemeral, args.secret, args.share, args.no_dotfiles = True, ["API_KEY"], ["/tmp"], False
+    args.extra = ["ssh"]
     line = wizard.command_line(args)
     assert cli.build_parser().parse_args(line.split()[1:]).container
     assert line == ("petribox new lab --image images:debian/13 --container --disk 20GiB --user petri "
-                    "--cpus 2 --memory 4GiB --ephemeral --secret API_KEY --share /tmp")
+                    "--cpus 2 --memory 4GiB --ephemeral --extra ssh --secret API_KEY --share /tmp")

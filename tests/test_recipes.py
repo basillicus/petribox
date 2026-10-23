@@ -41,3 +41,36 @@ def test_missing_recipe(tmp_path, monkeypatch):
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
     with pytest.raises(recipes.RecipeError):
         recipes.find("nope")
+
+
+def test_extras_resolve_with_dependencies_first():
+    names = [e.name for e in recipes.resolve_extras(["codex", "ssh", "node"])]
+    assert names == ["mise", "node", "codex", "ssh"]
+
+
+def test_extras_detect_loops(tmp_path, monkeypatch):
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    d = tmp_path / "petribox" / "extras"
+    d.mkdir(parents=True)
+    (d / "a.sh").write_text("# needs: b\n")
+    (d / "b.sh").write_text("# needs: a\n")
+    with pytest.raises(recipes.RecipeError, match="loop"):
+        recipes.resolve_extras(["a"])
+
+
+def test_every_builtin_extra_has_a_description_and_known_needs():
+    extras = recipes.all_extras()
+    for e in extras.values():
+        assert e.description, e.name
+        assert set(e.needs) <= set(extras), e.name
+
+
+def test_saved_recipe_loads_back(tmp_path, monkeypatch):
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    r = recipes.Recipe(name="debian-13", dir=tmp_path, image="images:debian/13", vm=False,
+                       description='Debian "quick"', extras=["ssh", "node"])
+    recipes.save(r)
+    back = recipes.find("debian-13")
+    assert (back.image, back.vm, back.extras, back.description) == \
+        ("images:debian/13", False, ["ssh", "node"], 'Debian "quick"')
+    assert "== extra: mise" in back.script()

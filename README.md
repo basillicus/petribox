@@ -19,14 +19,19 @@ Linux hosts only, since that's where Incus runs. On macOS or Windows use
 uv tool install .            # or: pipx install .
 petribox recipes             # what can be built
 petribox build rocky         # once per recipe; takes a few minutes
-petribox new lab --from rocky
+petribox new lab --from rocky --extra ssh --extra codex
 petribox shell lab
 ```
 
-Quick test without writing a recipe (or run `petribox new` and answer the questions):
+Or run `petribox new` with no arguments and answer the questions: recipe or
+image, size, extras, secrets, shared folders. It prints the equivalent
+command, and after an image choice it offers to save the answers as a
+recipe, so the next dish like it is a fast copy.
+
+Quick test without writing a recipe:
 
 ```bash
-petribox new try1 --image images:debian/13 --ephemeral --share ./project
+petribox new try1 --image images:debian/13 --ephemeral --extra ssh --share ./project
 ```
 
 Throwaway dish that deletes itself when it stops:
@@ -41,9 +46,10 @@ incus stop try1              # gone
 | Command | What it does |
 |---|---|
 | `petribox recipes` | List recipes and whether their base is built |
+| `petribox extras` | List extras: ssh, mise, node, uv, podman and agent CLIs |
 | `petribox build RECIPE [--rebuild]` | Create `pb-RECIPE` from the image, run `_common.sh` + `provision.sh` as root, stop it, snapshot `clean` |
-| `petribox new` | Ask: recipe or image, resources, ephemeral, secrets, dotfiles, shared folders; then print the equivalent command |
-| `petribox new NAME --from RECIPE [--ephemeral] [--secret KEY]... [--share DIR]... [--cpus N] [--memory 8GiB] [--no-dotfiles]` | `incus copy pb-RECIPE/clean NAME`, start, hand in secrets, apply dotfiles, mount folders |
+| `petribox new` | Ask: recipe or image, resources, extras, secrets, dotfiles, shared folders; print the equivalent command; offer to save an image setup as a recipe |
+| `petribox new NAME --from RECIPE [--ephemeral] [--extra X]... [--secret KEY]... [--share DIR]... [--cpus N] [--memory 8GiB] [--no-dotfiles]` | `incus copy pb-RECIPE/clean NAME` (building the base first if needed), start, install extras, hand in secrets, apply dotfiles, mount folders |
 | `petribox new NAME --image IMAGE [--container] [--disk 40GiB] [--user U] ...` | No recipe: launch the image and set up the user on the spot (slower per dish; use a recipe for anything you repeat) |
 | `petribox list [--bases]` | Your dishes with recipe, state and IPv4 (`--bases` adds the `pb-*` bases) |
 | `petribox shell NAME [CMD...]` | Login shell (or one command) as the dish user |
@@ -63,6 +69,7 @@ cpus = 2
 memory = "4GiB"
 disk = "20GiB"
 user = "petri"                  # the dish user, created if missing
+extras = ["ssh", "node"]        # see `petribox extras`
 ```
 
 ```bash
@@ -71,10 +78,33 @@ pkg_install nodejs npm
 as_user 'npm config set prefix ~/.local'
 ```
 
-`provision.sh` runs after the built-in [`_common.sh`](petribox/recipes/_common.sh),
-which waits for the network, creates the user with passwordless sudo, and
-provides `pkg_update`, `pkg_install` (dnf, apt or pacman) and `as_user`.
-Recipes in `~/.config/petribox/recipes/` override built-ins of the same name.
+`provision.sh` runs after the built-in [`_common.sh`](petribox/recipes/_common.sh)
+and the extras. `_common.sh` waits for the network, creates the user with
+passwordless sudo, and provides `pkg_update`, `pkg_install` (dnf, apt,
+pacman or zypper), `as_user` (a command, or a script on stdin) and
+`add_to_rc` (a line at the top of the user's `.bashrc`, and in `.zshenv`, so
+non-interactive commands see it too). Recipes in `~/.config/petribox/recipes/`
+override built-ins of the same name.
+
+### Extras
+
+An extra is a shell script in [`petribox/recipes/_extras/`](petribox/recipes/_extras)
+that installs one thing, with the same helpers as `provision.sh`. Use them in
+a recipe (`extras = [...]`, baked into the base) or for one dish
+(`--extra NAME`, installed after the copy). Add your own as
+`~/.config/petribox/extras/NAME.sh`:
+
+```bash
+# description: what it installs (shown by `petribox extras`)
+# needs: node          # extras to install first
+as_user 'npm install -g some-agent && mise reshim'
+```
+
+The `ssh` extra authorises your `~/.ssh/id_ed25519.pub` (or ecdsa, rsa) for
+the dish user, and `new` then prints the `ssh user@ip` line. The agent
+extras (`claude-code`, `codex`, `opencode`, `pi`, `openclaw`, `hermes`,
+`picoclaw`) run each project's own installer; `codex` is tested, the others
+are not.
 
 Built-in recipes: `rocky`, `debian`, `arch`, `kali` (VM, from Kali's own
 QEMU image; see [Kali](#kali-as-a-vm)), `kali-container`, `omarchy`

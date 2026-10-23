@@ -136,15 +136,18 @@ def read_env(name: str, user: str) -> dict[str, str]:
 
 
 def write_env(name: str, user: str, env: dict[str, str]) -> None:
-    """Replace the dish's env file (contents via stdin) and source it from
-    the shell rc files that exist (.bashrc is created if none does)."""
+    """Replace the dish's env file (contents via stdin) and source it at the
+    top of ~/.bashrc (above Debian's "not interactive? stop" check) and from
+    ~/.zshenv when zsh is installed, so one-off commands see it too."""
     source = shlex.quote(SOURCE_LINE)
     script = (
         f"umask 077 && mkdir -p ~/{os.path.dirname(ENV_FILE)} && cat > ~/{ENV_FILE} && "
         f"chmod 600 ~/{ENV_FILE} && "
-        f"{{ [ -f ~/.zshrc ] || touch ~/.bashrc; }} && "
-        f"for rc in ~/.bashrc ~/.zshrc; do "
-        f"[ -f \"$rc\" ] && {{ grep -qF {source} \"$rc\" || echo {source} >> \"$rc\"; }}; done; true"
+        f"for rc in ~/.bashrc ~/.zshenv; do "
+        f"case $rc in *zshenv) command -v zsh >/dev/null || continue;; esac; "
+        f"grep -qxF {source} \"$rc\" 2>/dev/null || "
+        f"{{ {{ echo {source}; cat \"$rc\" 2>/dev/null; }} > \"$rc.petribox\" && mv \"$rc.petribox\" \"$rc\"; }}; "
+        f"done; true"
     )
     proc = _as_user(name, user, script, render_env(env))
     if proc.returncode != 0:
