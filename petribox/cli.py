@@ -6,6 +6,7 @@ import argparse
 import io
 import json
 import os
+import platform
 import re
 import shlex
 import sys
@@ -392,8 +393,10 @@ def cmd_import_image(args) -> None:
     disk = Path(args.disk).resolve()
     if not disk.is_file():
         fail(f"no such file: {disk}")
+    # The host's architecture: Incus only runs images built for it.
+    arch = {"amd64": "x86_64", "arm64": "aarch64"}.get(platform.machine().lower(), platform.machine())
     metadata = (
-        "architecture: x86_64\n"
+        f"architecture: {arch}\n"
         f"creation_date: {int(time.time())}\n"
         "properties:\n"
         f"  description: {json.dumps(args.description or disk.name)}\n"
