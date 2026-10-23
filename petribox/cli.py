@@ -38,6 +38,9 @@ def image_config(image: str, vm: bool, config: dict) -> list[str]:
 def create(init: list[str], name: str) -> None:
     """`incus init`, removing a half-created instance if it fails, so the
     next attempt does not trip over it."""
+    if incus.exists(name):
+        # Never clean up an instance this call did not make.
+        raise incus.IncusError(f"'{name}' already exists")
     try:
         incus.run(*init, capture="stderr")  # shows the image download progress
     except incus.IncusError:

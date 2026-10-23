@@ -217,5 +217,14 @@ def test_query_follows_the_current_project(monkeypatch):
     monkeypatch.setattr(incus.subprocess, "run", fake_run)
     incus.current_project.cache_clear()
     incus.run("query", "/1.0/instances/lab")
+    incus.run("query", "/1.0/instances?recursion=1")
     incus.current_project.cache_clear()
-    assert seen[-1] == ["incus", "query", "--project", "demo", "/1.0/instances/lab"]
+    assert seen[-2] == ["incus", "query", "/1.0/instances/lab?project=demo"]
+    assert seen[-1] == ["incus", "query", "/1.0/instances?recursion=1&project=demo"]
+
+
+def test_create_never_deletes_an_instance_it_did_not_make(fake):
+    fake.existing.add("lab")
+    with pytest.raises(incus.IncusError):
+        cli.create(["init", "images:debian/13", "lab"], "lab")
+    assert fake.calls == []
