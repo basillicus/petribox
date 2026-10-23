@@ -25,6 +25,14 @@ pkg_install() {
 
 # Package lists first: apt cannot install anything before an update.
 command -v apt-get >/dev/null && apt-get update -q
+# Arch: the image's keyring can be older than today's packagers' keys, and
+# installing without a full upgrade is unsupported. Refresh both, once.
+if command -v pacman >/dev/null; then
+  [ -d /etc/pacman.d/gnupg ] || pacman-key --init
+  pacman-key --populate archlinux >/dev/null
+  pacman -Sy --noconfirm --needed archlinux-keyring
+  pacman -Su --noconfirm
+fi
 pkg_install sudo curl git
 
 # The dish user: uid 1000 when free, passwordless sudo, no password login.

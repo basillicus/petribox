@@ -12,6 +12,7 @@ class FakeIncus:
     def __init__(self, existing=(), snapshots=(), config=None):
         self.calls, self.existing, self.snapshots = [], set(existing), set(snapshots)
         self.config = config or {}
+        self.requirements = {}
 
     def run(self, *args, **kw):
         self.calls.append(args)
@@ -26,6 +27,7 @@ def fake(monkeypatch):
     monkeypatch.setattr(incus, "exists", lambda n: n in f.existing)
     monkeypatch.setattr(incus, "has_snapshot", lambda n, s: (n, s) in f.snapshots)
     monkeypatch.setattr(incus, "wait_for_agent", lambda n, timeout=300: None)
+    monkeypatch.setattr(incus, "image_requirements", lambda image, vm: f.requirements.get(image, {}))
     return f
 
 
@@ -145,3 +147,25 @@ def test_wizard_prints_a_repeatable_command():
     assert cli.build_parser().parse_args(line.split()[1:]).container
     assert line == ("petribox new lab --image images:debian/13 --container --disk 20GiB --user petri "
                     "--cpus 2 --memory 4GiB --ephemeral --extra ssh --secret API_KEY --share /tmp")
+
+
+def test_build_turns_secure_boot_off_when_the_image_needs_it(fake):
+    fake.requirements["images:archlinux"] = {"secureboot": "false"}
+    cli.main(["build", "arch"])
+    assert "security.secureboot=false" in fake.calls[0]
+    fake.calls.clear()
+    cli.main(["build", "rocky"])
+    assert "security.secureboot=false" not in fake.calls[0]
+
+
+def test_failed_create_removes_the_half_made_instance(fake, monkeypatch):
+    def run(*args, **kw):
+        fake.calls.append(args)
+        if args[0] == "init":
+            fake.existing.add(args[2])
+            raise incus.IncusError("image is incompatible")
+        return types.SimpleNamespace(returncode=0, stdout="", stderr="")
+    monkeypatch.setattr(incus, "run", run)
+    with pytest.raises(SystemExit):
+        cli.main(["build", "arch"])
+    assert ("delete", "--force", "pb-arch") in fake.calls

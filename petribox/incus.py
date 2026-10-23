@@ -39,6 +39,18 @@ def has_snapshot(name: str, snapshot: str) -> bool:
     return run("query", f"/1.0/instances/{name}/snapshots/{snapshot}", check=False).returncode == 0
 
 
+def image_requirements(image: str, vm: bool) -> dict[str, str]:
+    """An image's `requirements.*` properties (e.g. secureboot: false), or {}
+    when the image cannot be looked up (incus init will then say why)."""
+    proc = run("image", "info", image, *(["--vm"] if vm else []), check=False)
+    reqs = {}
+    for line in proc.stdout.splitlines() if proc.returncode == 0 else []:
+        key, _, value = line.strip().partition(": ")
+        if key.startswith("requirements."):
+            reqs[key.removeprefix("requirements.")] = value.strip()
+    return reqs
+
+
 def config_get(name: str, key: str) -> str:
     return run("config", "get", name, key).stdout.strip()
 

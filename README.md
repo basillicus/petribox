@@ -126,6 +126,13 @@ Built-in recipes: `rocky`, `debian`, `arch`, `kali` (VM, from Kali's own
 QEMU image; see [Kali](#kali-as-a-vm)), `kali-container`, `omarchy`
 (untested, see its `recipe.toml`).
 
+Image quirks are handled when petribox can see them: an image whose metadata
+says it needs Secure Boot off (Arch's VM image) gets `security.secureboot=false`,
+and Arch's keyring is refreshed before the first install. Anything else an
+image needs goes in the recipe's `config` table, e.g.
+`config = { "security.secureboot" = "false" }`, or on one dish with
+`incus config set NAME key=value`.
+
 No cloud-init: the plain images run `incus exec` from the start, and a base is
 built once and copied, so nothing needs to happen on first boot.
 

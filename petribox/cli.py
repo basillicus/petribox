@@ -21,6 +21,28 @@ USER_KEY = "user.petribox.user"  # set on the base, so every copy carries it
 RECIPE_KEY = "user.petribox.recipe"
 
 
+def image_config(image: str, vm: bool, config: dict) -> list[str]:
+    """`-c` options an image needs that the recipe did not set. Some VM
+    images (Arch) are not signed for Secure Boot and say so in their
+    metadata; Incus refuses to create them with Secure Boot on."""
+    reqs = incus.image_requirements(image, vm)
+    if vm and reqs.get("secureboot") == "false" and "security.secureboot" not in config:
+        ui.info(f"{image} needs Secure Boot off; setting security.secureboot=false")
+        return ["-c", "security.secureboot=false"]
+    return []
+
+
+def create(init: list[str], name: str) -> None:
+    """`incus init`, removing a half-created instance if it fails, so the
+    next attempt does not trip over it."""
+    try:
+        incus.run(*init, capture=False)  # shows the image download progress
+    except incus.IncusError:
+        if incus.exists(name):
+            incus.run("delete", "--force", name, check=False)
+        raise
+
+
 def dish_user(name: str) -> str:
     user = incus.config_get(name, USER_KEY)
     if not user:
@@ -67,10 +89,11 @@ def build_base(r: recipes.Recipe, rebuild: bool = False, resume: bool = False,
             "-d", f"root,size={r.disk}"]
     for key, value in r.config.items():
         init += ["-c", f"{key}={value}"]
+    init += image_config(r.image, r.vm, r.config)
     if r.vm:
         init.append("--vm")
     ui.step(f"{r.base}: creating from {r.image}")
-    incus.run(*init, capture=False)  # shows the image download progress
+    create(init, r.base)
     if r.vm:
         # Images without a built-in agent (cloud variants, imported disks) need
         # the agent config drive; for the others it does no harm.
@@ -226,10 +249,11 @@ def launch_from_image(args, limits: list[str], extras: list[str]) -> None:
     init = ["init", args.image, args.name, *limits, "-c", f"{USER_KEY}={user}",
             "-c", f"{RECIPE_KEY}={args.image}"]
     init += ["-d", f"root,size={args.disk}"] if args.disk else []
+    init += image_config(args.image, vm, {})
     init += ["--vm"] if vm else []
     init += ["--ephemeral"] if args.ephemeral else []
     ui.step(f"{args.name}: creating from {args.image}")
-    incus.run(*init, capture=False)  # shows the image download progress
+    create(init, args.name)
     if vm:
         incus.run("config", "device", "add", args.name, "agent", "disk", "source=agent:config",
                   check=False)
