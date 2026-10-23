@@ -58,6 +58,16 @@ def config_get(name: str, key: str) -> str:
     return run("config", "get", name, key).stdout.strip()
 
 
+def stop(name: str, timeout: int = 60) -> bool:
+    """Stop cleanly if the guest agrees, else by force after syncing its disks
+    (some guests ignore the ACPI shutdown request). True if it was clean."""
+    run("exec", name, "--", "sync", check=False)
+    if run("stop", name, "--timeout", str(timeout), check=False).returncode == 0:
+        return True
+    run("stop", name, "--force")
+    return False
+
+
 def wait_for_agent(name: str, timeout: float = 300) -> None:
     """Block until `incus exec` works (VM agent up / container running)."""
     deadline = time.time() + timeout

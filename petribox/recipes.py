@@ -50,6 +50,7 @@ class Recipe:
     description: str = ""
     config: dict = field(default_factory=dict)  # extra instance config, e.g. security.secureboot
     extras: list = field(default_factory=list)  # e.g. ["ssh", "node@24.22.1"]
+    agent_via_ssh: bool = False  # image has sshd but no agent: install it over SSH (bootstrap.py)
     vagrant_box: str = ""     # for `petribox export-recipe`, when the image has no known box
     lima_template: str = ""   # likewise for Lima
 

@@ -153,6 +153,27 @@ ships neither the Incus agent nor a running SSH server, so the build stops
 and asks for the one manual step below. The `clean` snapshot keeps the agent,
 so this happens once per base, not per dish.
 
+### Omarchy as a VM
+
+Omarchy publishes an official VM image; the `omarchy` recipe uses it and
+needs no manual step:
+
+```bash
+curl -fsSL https://nightly.omarchy.org/stable/latest.json    # vm.url, vm.sha256
+curl -fLO <vm.url> && echo "<vm.sha256>  omarchy-X.Y.Z.qcow2" | sha256sum -c
+petribox import-image omarchy-X.Y.Z.qcow2 omarchy-qemu
+petribox build omarchy
+```
+
+The image has sshd but no Incus agent. With `agent_via_ssh = true` in a
+recipe, the first boot of the base gets a one-off SSH key and sudo rule
+through the VM firmware (a systemd credential, as Omarchy's own `vm-boot`
+does); petribox logs in, installs the agent, then stops the VM, removes the
+firmware entry and deletes the key and rule, and checks that they are gone.
+It needs systemd 252 or newer and an sshd that starts by default (Kali's
+image does not start sshd, hence its manual step). Updates go through
+`omarchy update -y`, since Omarchy refuses a plain `pacman -Syu`.
+
 ### Images without an agent
 
 `import-image` works for any distro's VM disk image, but `incus exec` needs

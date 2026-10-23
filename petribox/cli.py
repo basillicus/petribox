@@ -14,7 +14,7 @@ import tempfile
 import time
 from pathlib import Path
 
-from . import __version__, export, hints, incus, recipes, secrets, ui, wizard
+from . import __version__, bootstrap, export, hints, incus, recipes, secrets, ui, wizard
 from .ui import fail
 
 USER_KEY = "user.petribox.user"  # set on the base, so every copy carries it
@@ -100,7 +100,12 @@ def build_base(r: recipes.Recipe, rebuild: bool = False, resume: bool = False,
         # the agent config drive; for the others it does no harm.
         incus.run("config", "device", "add", r.base, "agent", "disk", "source=agent:config",
                   check=False)
-    incus.run("start", r.base)
+    if r.vm and r.agent_via_ssh:
+        with ui.spinner(f"Installing the Incus agent in {r.base} over SSH (one-off key)..."):
+            bootstrap.install_agent(r.base, r.user, timeout=timeout)
+        ui.ok(f"{r.base}: Incus agent installed; one-off key and sudo rule removed")
+    else:
+        incus.run("start", r.base)
     provision_and_snapshot(r, timeout)
 
 
@@ -121,10 +126,7 @@ def provision_and_snapshot(r: recipes.Recipe, timeout: float) -> None:
     # Some guests (Kali's desktop image) ignore the ACPI shutdown request, so
     # flush the disks first and force the stop if the clean one times out.
     with ui.spinner(f"Stopping {r.base}..."):
-        incus.run("exec", r.base, "--", "sync", check=False)
-        stopped = incus.run("stop", r.base, "--timeout", "60", check=False).returncode == 0
-        if not stopped:
-            incus.run("stop", r.base, "--force")
+        stopped = incus.stop(r.base)
     if not stopped:
         ui.warn(f"{r.base} ignored the shutdown request; stopped it by force after syncing")
     if incus.has_snapshot(r.base, "clean"):
