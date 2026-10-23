@@ -583,6 +583,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("keys", nargs="*", metavar="KEY", help="set these (from config or a prompt)")
     p.add_argument("--unset", action="append", metavar="KEY")
     p.set_defaults(func=cmd_secret)
+    # `petribox CMD --help` shows the same line as `petribox --help`.
+    for action in sub._choices_actions:
+        sub.choices[action.dest].description = action.help
     return parser
 
 
