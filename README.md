@@ -66,7 +66,7 @@ The same as one terminal recording, with text you can copy:
 | `petribox new NAME --image IMAGE [--container] [--disk 40GiB] [--user U] ...` | No recipe: launch the image and set up the user on the spot (slower per dish; use a recipe for anything you repeat) |
 | `petribox add NAME EXTRA...` | Install extras into an existing dish (only that dish; for every future one, add them to the recipe and `build --resume`) |
 | `petribox start NAME...` / `stop NAME... [--force]` / `delete NAME... [--yes]` | Wrappers that print the `incus` command they run: `incus start`; `incus stop --timeout 60`, then `--force` if the guest ignores it (an ephemeral dish is then deleted); `incus delete --force`, after a question |
-| `petribox list [--bases]` | Your dishes with recipe, state and IPv4 (`--bases` adds the `pb-*` bases) |
+| `petribox list [--bases]` | Your dishes with recipe, state, IPv4, CPUs, and memory and disk as used / limit (`--bases` adds the `pb-*` bases). Live view: `incus top` |
 | `petribox shell NAME [CMD...]` | Login shell (or one command) as the dish user |
 | `petribox mount NAME DIR [DEST]` | Share a host directory, by default at `~user/<dir name>`; remove with `incus config device remove NAME <device>` |
 | `petribox secret NAME` / `NAME KEY...` / `NAME --unset KEY` | List (masked), set or remove a dish's secrets |

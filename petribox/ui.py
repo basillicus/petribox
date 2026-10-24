@@ -60,11 +60,14 @@ def spinner(msg: str):
         yield
 
 
-def table(columns: list[tuple[str, str]], rows: list[tuple], title: str = "") -> None:
-    """columns: (header, style) pairs; cells: plain strings (escaped here) or Text."""
+def table(columns: list[tuple], rows: list[tuple], title: str = "") -> None:
+    """columns: (header, style) or (header, style, keep) tuples; cells: plain
+    strings (escaped here) or Text. The first column and those with keep=True
+    (names, addresses: things to copy) are never wrapped or cut."""
     t = Table(title=title or None, title_justify="left", header_style="bold")
-    for header, style in columns:
-        t.add_column(header, style=style or None)
+    for i, (header, style, *keep) in enumerate(columns):
+        whole = i == 0 or bool(keep and keep[0])
+        t.add_column(header, style=style or None, no_wrap=whole, min_width=len(header) if whole else None)
     for row in rows:
         t.add_row(*(c if isinstance(c, Text) else escape(c) for c in row))
     console.print(t)

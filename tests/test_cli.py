@@ -228,3 +228,13 @@ def test_create_never_deletes_an_instance_it_did_not_make(fake):
     with pytest.raises(incus.IncusError):
         cli.create(["init", "images:debian/13", "lab"], "lab")
     assert fake.calls == []
+
+
+def test_resources_show_used_and_limit():
+    inst = {"name": "lab", "type": "container", "status": "Running",
+            "expanded_config": {"limits.cpu": "2", "limits.memory": "4GiB"},
+            "expanded_devices": {"root": {"size": "20GiB"}},
+            "state": {"memory": {"usage": 3 * 2**30 // 2}, "disk": {"root": {"usage": 5 * 2**30}}}}
+    assert cli.resources(inst) == ("2", "1.5 / 4", "5 / 20")
+    inst["status"] = "Stopped"
+    assert cli.resources(inst) == ("2", "4", "20")

@@ -336,15 +336,55 @@ def cmd_list(args) -> None:
             continue
         recipe = conf.get(RECIPE_KEY) or (inst["name"].removeprefix(recipes.BASE_PREFIX) if is_base else "?")
         kind = "vm" if inst.get("type") == "virtual-machine" else "container"
-        notes = ", ".join(n for n, on in (("base", is_base), ("ephemeral", inst.get("ephemeral"))) if on)
-        rows.append((inst["name"], recipe, kind, ui.state(inst["status"]),
-                     ipv4(inst) or "-", notes))
+        notes = ", ".join(n for n, on in ((kind, True), ("base", is_base),
+                                          ("ephemeral", inst.get("ephemeral"))) if on)
+        cpus, memory, disk = resources(inst)
+        rows.append((inst["name"], recipe, ui.state(inst["status"]),
+                     ipv4(inst) or "-", cpus, memory, disk, notes))
     if not rows:
         ui.warn("No dishes")
         ui.hint("Make one", "petribox new NAME --from RECIPE")
         return
-    ui.table([("Name", "cyan"), ("Recipe", ""), ("Type", ""), ("State", ""), ("IPv4", "dim"), ("Notes", "yellow")],
+    ui.table([("Name", "cyan"), ("Recipe", ""), ("State", ""), ("IPv4", "dim", True),
+              ("CPUs", ""), ("Mem GiB", "", True), ("Disk GiB", "", True), ("Notes", "yellow")],
              rows, title="Petribox dishes")
+    ui.info("Memory and disk in GiB: used / limit, while running. Disk is what the dish sees; "
+            "on the host, copies share the base's unchanged blocks. Live: incus top")
+
+
+def size(text: str) -> float:
+    """'4GiB', '512MiB', '20GB' -> bytes (0 if unreadable)."""
+    m = re.fullmatch(r"\s*([\d.]+)\s*([KMGT]?)(i?)B?\s*", text or "")
+    if not m:
+        return 0
+    return float(m.group(1)) * (1024 if m.group(3) or not m.group(2) else 1000) ** "_KMGT".index(m.group(2) or "_")
+
+
+def gib(n: float) -> str:
+    return f"{n / 2**30:.1f}".removesuffix(".0")
+
+
+def resources(inst: dict) -> tuple[str, str, str]:
+    """CPUs, memory and disk of one `incus list` entry, as table cells."""
+    conf, state = inst.get("expanded_config") or {}, inst.get("state") or {}
+    running = inst.get("status") == "Running"
+    cpus = conf.get("limits.cpu", "all")
+    mem_limit = size(conf.get("limits.memory", ""))
+    mem_used = (state.get("memory") or {}).get("usage", 0) if running else 0
+    root = (inst.get("expanded_devices") or {}).get("root") or {}
+    disk_limit = size(root.get("size", ""))
+    disk_used = ((state.get("disk") or {}).get("root") or {}).get("usage", -1) if running else -1
+    if disk_used < 0 and running and inst.get("type") == "virtual-machine":
+        # Incus cannot see into a VM's disk on some storage drivers (btrfs): ask the guest.
+        out = incus.run("exec", inst["name"], "--", "df", "-B1", "--output=used", "/", check=False).stdout
+        disk_used = int(out.split()[-1]) if out.split() and out.split()[-1].isdigit() else -1
+
+    def cell(used: float, limit: float) -> str:
+        if used > 0:
+            shown = gib(used) if used >= 2**30 / 10 else "<0.1"
+            return f"{shown} / {gib(limit)}" if limit else shown
+        return gib(limit) if limit else "-"
+    return cpus, cell(mem_used, mem_limit), cell(max(disk_used, 0), disk_limit)
 
 
 def cmd_mount(args) -> None:
