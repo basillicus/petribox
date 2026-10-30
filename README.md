@@ -59,8 +59,9 @@ The same as one terminal recording, with text you can copy:
 |---|---|
 | `petribox recipes` | List recipes and whether their base is built |
 | `petribox extras` | List extras: ssh, mise, node, uv, podman and agent CLIs |
-| `petribox export-recipe RECIPE --to vagrant\|lima [-o DIR]` | Write the recipe as a Vagrantfile + provision.sh, or a Lima template |
-| `petribox build RECIPE [--rebuild\|--resume]` | Create `pb-RECIPE` from the image, run `_common.sh` + extras + `provision.sh` as root, stop it, snapshot `clean`. `--resume` runs the script again on the existing base (after a recipe change), `--rebuild` starts over |
+| `petribox export-recipe RECIPE --to vagrant\|lima [-o DIR] [--force]` | Write the recipe as a Vagrantfile + provision.sh, or a Lima template (`--force` overwrites existing files) |
+| `petribox import-image DISK.qcow2 ALIAS [--description D]` | Turn a VM disk image into a local Incus image a recipe can use as `image = "ALIAS"` (see [Kali](#kali-as-a-vm)) |
+| `petribox build RECIPE [--rebuild\|--resume] [--timeout S]` | Create `pb-RECIPE` from the image, run `_common.sh` + extras + `provision.sh` as root, stop it, snapshot `clean`. `--resume` runs the script again on the existing base (after a recipe change), `--rebuild` starts over; `--timeout` is how long to wait for the guest agent (default 300 s) |
 | `petribox new` | Ask: recipe or image, resources, extras, secrets, dotfiles, shared folders; print the equivalent command; offer to save an image setup as a recipe |
 | `petribox new NAME --from RECIPE [--ephemeral] [--extra X]... [--secret KEY]... [--share DIR]... [--cpus N] [--memory 8GiB] [--no-dotfiles]` | `incus copy pb-RECIPE/clean NAME` (building the base first if needed), start, install extras, hand in secrets, apply dotfiles, mount folders |
 | `petribox new NAME --image IMAGE [--container] [--disk 40GiB] [--user U] ...` | No recipe: launch the image and set up the user on the spot (slower per dish; use a recipe for anything you repeat) |
@@ -68,7 +69,7 @@ The same as one terminal recording, with text you can copy:
 | `petribox start NAME...` / `stop NAME... [--force]` / `delete NAME... [--yes]` | Wrappers that print the `incus` command they run: `incus start`; `incus stop --timeout 60`, then `--force` if the guest ignores it (an ephemeral dish is then deleted); `incus delete --force`, after a question |
 | `petribox list [--bases]` | Your dishes with recipe, state, IPv4, CPUs, and memory and disk as used / limit (`--bases` adds the `pb-*` bases). Live view: `incus top` |
 | `petribox shell NAME [CMD...]` | Login shell (or one command) as the dish user |
-| `petribox mount NAME DIR [DEST]` | Share a host directory, by default at `~user/<dir name>`; remove with `incus config device remove NAME <device>` |
+| `petribox mount NAME DIR [DEST] [--device D]` | Share a host directory, by default at `~user/<dir name>` (device name from the dir name unless `--device`); remove with `incus config device remove NAME <device>` |
 | `petribox secret NAME` / `NAME KEY...` / `NAME --unset KEY` | List (masked), set or remove a dish's secrets |
 
 ## Recipes
